@@ -1,6 +1,4 @@
 
-!ifndef X16_INC {
-X16_INC	= 1
 
 IRQ_VEC		= $0314
 
@@ -9,6 +7,9 @@ JOY2		= $02BF
 
 GETJOY		= $FF06
 CHROUT		= $FFD2
+PLOT		= $FFF0
+
+COLOR_PORT	= $0286
 
 VERA_BASE	= $9F20
 VERA_ADDR_LOW	= VERA_BASE+0
@@ -20,4 +21,38 @@ VERA_CTRL	= VERA_BASE+5
 VERA_IEN	= VERA_BASE+6
 VERA_ISR	= VERA_BASE+7
 
+TMP0		= $00
+TMP1		= $01
+TMP2		= $02
+
+!macro vera_goxy .xcord, .ycord {
+	lda	#.ycord
+	sta	VERA_ADDR_HIGH
+	lda	#.xcord
+	asl
+	sta	VERA_ADDR_LOW
 }
+
+!macro vera_chrout .char {
+	lda	#.char
+	sta	VERA_DATA0
+}
+
+!macro vera_color .col {
+	ldy	#.col
+	sty	VERA_DATA0
+}
+
+!macro vera_color .col, .add {
+	ldy	VERA_ADDR_LOW
+	iny
+	sty	VERA_ADDR_LOW
+	ldy	#.col
+	sty	VERA_DATA0
+}
+
+;	jmp	X16_DONE
+
+
+
+X16_DONE:
