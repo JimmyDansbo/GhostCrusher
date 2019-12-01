@@ -50,43 +50,43 @@ splash_screen:
 	ldx	#<.gc5
 	ldy	#>.gc5
 	jsr	print_str
-	+gotoxy 23, 18
+	+gotoxy 41-((.mail-.name)/2), 18
 	ldx	#<.name
 	ldy	#>.name
 	jsr	print_str
-	+gotoxy	27, 20
+	+gotoxy	41-((.forcx16-.mail)/2), 20
 	ldx	#<.mail
 	ldy	#>.mail
 	jsr	print_str
-	+gotoxy	27, 27
+	+gotoxy	41-((.pstart-.forcx16)/2), 27
 	ldx	#<.forcx16
 	ldy	#>.forcx16
 	jsr	print_str
-	+gotoxy 24, 36
+	+gotoxy 41-((.player_text-.pstart)/2), 36
 	ldx	#<.pstart
 	ldy	#>.pstart
 	jsr	print_str
-	+gotoxy	38, 24
+	+gotoxy	39, 24
 	ldx	#<.xl1
 	ldy	#>.xl1
 	jsr	print_str
-	+gotoxy 39, 25
+	+gotoxy 40, 25
 	ldx	#<.xl2
 	ldy	#>.xl2
 	jsr	print_str
-	+gotoxy 40, 26
+	+gotoxy 41, 26
 	ldx	#<.xl3
 	ldy	#>.xl3
 	jsr	print_str
-	+gotoxy 40, 28
+	+gotoxy 41, 28
 	ldx	#<.xl5
 	ldy	#>.xl5
 	jsr	print_str
-	+gotoxy 39, 29
+	+gotoxy 40, 29
 	ldx	#<.xl6
 	ldy	#>.xl6
 	jsr	print_str
-	+gotoxy 38, 30
+	+gotoxy 39, 30
 	ldx	#<.xl7
 	ldy	#>.xl7
 	jsr	print_str
