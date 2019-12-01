@@ -8,6 +8,7 @@ JOY2		= $02BF
 GETJOY		= $FF06
 CHROUT		= $FFD2
 PLOT		= $FFF0
+SCRMOD		= $FF5F
 
 COLOR_PORT	= $0286
 
@@ -49,6 +50,12 @@ TMP2		= $02
 	sty	VERA_ADDR_LOW
 	ldy	#.col
 	sty	VERA_DATA0
+}
+
+!macro vera_init {
+	lda	#0
+	sta	VERA_CTRL
+	sta	VERA_ADDR_BANK
 }
 
 ;	jmp	X16_DONE
