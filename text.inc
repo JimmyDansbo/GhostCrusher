@@ -1,13 +1,11 @@
 
 PLAYER		= $5A
 PORTAL		= $57
-;GHOST		= $08
 GHOST		= $58
 PGHOST		= $23	; Poltergeist
 DGHOST		= $56	; Dimentional ghost (i.e. ghost from portal)
-
 WALL		= $66
-SWALL		= ' '
+SWALL		= $60
 
 PLAY_COL	= $0E
 GHOST_COL	= $08
@@ -20,7 +18,7 @@ PET_GHOST	= $78
 PET_PGHOST	= '#'
 PET_DGHOST	= $76
 PET_WALL	= $A6
-PET_SWALL	= ' '
+PET_SWALL	= $A0
 
 
 !macro gotoxy .xcord, .ycord {
@@ -31,6 +29,27 @@ PET_SWALL	= ' '
 }
 
 	jmp	TEXT_DONE
+
+; *******************************************************************
+; Print a 0-terminated petscii string to screen using KERNAL API
+; *******************************************************************
+; INPUTS:	X and Y pointer to string
+; USES:		A
+;		$00 and $01 for storing the pointer to string
+; *******************************************************************
+print_str:
+	; Store address of string in ZP memory
+	stx	TMP0
+	sty	TMP1
+	ldy	#0		; Y register used to index string
+.doprint
+	lda	(TMP0), y	; Load character from string
+	beq	.printdone	; If character is 0, we are done
+	jsr	CHROUT		; Write charactoer to screen
+	iny			; Inc Y to get next character
+	jmp	.doprint	; Get next character
+.printdone:
+	rts
 
 .gc1		!pet	" ",$A6,$A6,$A6,"  ",$A6,"   ",$A6,"  ",$A6,$A6,$A6,"   ",$A6,$A6,$A6,$A6," ",$A6,$1C,$12,' ',$92,$1E,$A6,$A6,$A6,"    ",$A6,$A6,$A6,"  ",$A6,$A6,$A6,$A6,"  ",$A6,"   ",$A6,"  ",$A6,$A6,$A6,$A6," ",$A6,"   ",$A6," ",$1C,$12,' ',$92,$1E,$A6,$A6,$1C,$12,' ',$92,$1E,$A6," ",$A6,$A6,$A6,$A6,$A6,0
 .gc2		!pet	$1C,$12,' ',$92,$1E,"   ",$A6," ",$A6,$9A,$7A,$1E,"  ",$A6," ",$A6,"   ",$A6," ",$A6," ",$81,$77,$1E,"     ",$A6,"     ",$A6,$81,$78,$1E,"  ",$A6," ",$A6,"   ",$A6," ",$A6,"   ",$A6," ",$A6,$81,$77,$1E,"    ",$A6,"   ",$A6," ",$A6,"     ",$A6,"    ",$1c,$12,' ',$92,$1E,0
