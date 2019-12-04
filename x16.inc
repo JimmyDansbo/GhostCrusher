@@ -43,44 +43,60 @@ TMP7		= $07
 TMP8		= $08
 TMP9		= $09
 
-!macro vera_goxy .xcord, .ycord {
-	lda	#.ycord
-	sta	VERA_ADDR_HIGH
-	lda	#.xcord
-	asl
-	sta	VERA_ADDR_LOW
-}
-
-!macro vera_chrout .char {
-	lda	#.char
-	sta	VERA_DATA0
-}
-
-!macro vera_color .col {
-	ldy	#.col
-	sty	VERA_DATA0
-}
-
-!macro vera_color .col, .add {
-	ldy	VERA_ADDR_LOW
-	iny
-	sty	VERA_ADDR_LOW
-	ldy	#.col
-	sty	VERA_DATA0
-}
-
+; *******************************************************************
+; Initialize VERA with sane values
+; *******************************************************************
+; USES:		A
+; *******************************************************************
 !macro vera_init {
 	lda	#0
-	sta	VERA_CTRL
+	sta	VERA_CTRL	; No reset, use data0
 	lda	#$10
-	sta	VERA_ADDR_BANK
+	sta	VERA_ADDR_BANK	; Increment by 1
 }
 
+; *******************************************************************
+; Save the address of the original interrupt handler
+; *******************************************************************
+; USES:		A
+; *******************************************************************
 !macro save_int_vector {
 	lda	IRQ_VEC
-	sta	old_irq_handler+1
+	sta	old_irq_handler
 	lda	IRQ_VEC+1
-	sta	old_irq_handler+2
+	sta	old_irq_handler+1
+}
+
+; *******************************************************************
+; Install new interrupt handler
+; *******************************************************************
+; USES:		A
+; *******************************************************************
+!macro install_int_handler {
+	sei			; Disable interrupts
+	lda	#1		; Tell VERA that we want interrupts
+	sta	VERA_IEN	; on each VSYNC
+	lda	#<handle_irq	; Write address of local interrupt
+	sta	IRQ_VEC		; handler to the interrupt
+	lda	#>handle_irq	; vector address ($0314)
+	sta	IRQ_VEC+1
+	cli			; Enable interrupts
+}
+
+; *******************************************************************
+; Check if the VSYNC interrupt has occurred. If it has,
+; call the do_game routine to keep the game going.
+; *******************************************************************
+; USES:		A
+; *******************************************************************
+!macro check_irq {
+	lda	IRQ_TRIG
+	beq	.done
+	; VSYNC IRQ has occurred, handle
+	jsr	do_game
+	lda	#0
+	sta	IRQ_TRIG
+.done:
 }
 
 	jmp	X16_DONE
@@ -91,6 +107,6 @@ TMP9		= $09
 ; will be updated to point to the original interrupt handler.
 ; *******************************************************************
 old_irq_handler:
-	jmp	$FFFF
+	!word	$FFFF
 
 X16_DONE:

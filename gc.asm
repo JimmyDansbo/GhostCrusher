@@ -2,10 +2,48 @@
 !byte $0C,$08,$0A,$00,$9E,$20,$32,$30,$36,$34,$00,$00,$00
 *=$0810
 
-RANDNUM		=	$7E	; Last available ZP addresses (R34)
-LEVEL		=	RANDNUM-1	; ZP address to store current level
-LIVES		=	RANDNUM-2	; ZP address to store number of lives
+RANDNUM		=	$7E		; 2 bytes for RANDOM seed
+IRQ_TRIG	=	RANDNUM-1	; ZP address to show if IRQ triggered
+LEVEL		=	IRQ_TRIG-1	; ZP address to store current level
+LIVES		=	LEVEL-1		; ZP address to store number of lives
+NUMGHOSTS	=	LIVES-1		; Number of 'normal' ghosts
+NUMPGHOSTS	=	NUMGHOSTS-1	; Number of polter geists
+NUMDGHOSTS	=	NUMPGHOSTS-1	; Number of dimentional ghosts
+NUMPORTALS	=	NUMDGHOSTS-1	; Number of portals
+POINTS		=	NUMPORTALS-3	; 3 bytes
 
+	jmp	main
+
+; *******************************************************************
+; Initialize ZP variables with correct values for start
+; *******************************************************************
+; USES:		A
+; *******************************************************************
+init_vars:
+	lda	#1		; LEVEL = 1
+	sta	LEVEL
+	sta	RANDNUM
+	lda	#5		; LIVES = 5
+	sta	LIVES
+	sta	RANDNUM+1
+
+	lda	#2
+	sta	NUMGHOSTS	; NUMGHOSTS = 2
+	lda	#0
+	sta	IRQ_TRIG	; IRQ_TRIG = 0
+	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
+	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
+	sta	NUMPORTALS	; NUMPORTALS = 0
+	sta	POINTS		; POINTS = 000000 (BCD)
+	sta	POINTS+1
+	sta	POINTS+2
+	rts
+
+; *******************************************************************
+; Find a random number between .min and .max
+; *******************************************************************
+; USES:		A
+; *******************************************************************
 !macro rand .min, .max {
 -	jsr	randomize
 	cmp	#(.max-.min)
@@ -17,22 +55,16 @@ LIVES		=	RANDNUM-2	; ZP address to store number of lives
 !src "x16.inc"
 !src "text.inc"
 
-
+; *******************************************************************
+; Starting point of program
+; *******************************************************************
 main:
 	jsr	init_vars
 	jsr	splash_screen
 
 	+vera_init
 	+save_int_vector
-
-	sei
-	lda	#1
-	sta	VERA_IEN
-	lda	#<rnd_irq
-	sta	IRQ_VEC
-	lda	#>rnd_irq
-	sta	IRQ_VEC+1
-	cli
+	+install_int_handler
 
 	; Wait for user to start game, use the time to
 	; to do random numbers
@@ -48,58 +80,38 @@ main:
 	jsr	place_swalls
 	lda	#6
 	jsr	place_walls
-
--	jsr	GETJOY
-	lda	JOY1
-	and	#NES_STA
-	bne	-
-
-	jsr	clear_field
-
+	jsr	place_ghosts
+	jsr	place_player
 	jmp	.start_wait
+
+
 	rts
 
+do_game:
 
-; *******************************************************************
-; Clear the playing field
-; *******************************************************************
-clear_field:
-	lda	#$10
-	sta	VERA_ADDR_BANK		; Increment by 1
-	ldy	#3
-
-.outloop:
-	sty	VERA_ADDR_HIGH
-	ldx	#78
-	lda	#2
-	sta	VERA_ADDR_LOW
-.inloop:
-	lda	#' '
-	sta	VERA_DATA0
-	lda	#WALL_COL
-	sta	VERA_DATA0
-	dex
-	bne	.inloop
-	iny
-	cpy	#59
-	bne	.outloop
 	rts
 
 ; *******************************************************************
-; Place walls randomly on the playing field
+; Place player randomly on the playing field
+; *******************************************************************
+; USES:
+; *******************************************************************
+place_player:
+	jsr	find_empty
+	lda	#PLAYER
+	sta	VERA_DATA0
+	inc	VERA_ADDR_LOW
+	lda	#PLAY_COL
+	sta	VERA_DATA0
+	rts
+
+; *******************************************************************
+; Find an empty place on the playing field and set VERA address
+; to point at it: This function assumes that VERA increment is 0
 ; *******************************************************************
 ; USES:		A
-;		TMP0 and TMP1 for counters
 ; *******************************************************************
-place_walls:
-;	lda	#6
-	sta	TMP0
-	lda	#0
-	sta	TMP1
-	sta	VERA_ADDR_BANK		; No Increment
-
-.out_loop:
-.in_loop:
+find_empty:
 	+rand	3, 59
 	sta	VERA_ADDR_HIGH
 	+rand	1, 79
@@ -107,32 +119,82 @@ place_walls:
 	sta	VERA_ADDR_LOW
 	lda	VERA_DATA0
 	cmp	#' '
-	bne	.in_loop
-	lda	#WALL
-	sta	VERA_DATA0
+	bne	find_empty
+	rts
+
+; *******************************************************************
+; Place ghosts and portals randomly on the playing field
+; *******************************************************************
+; INPUT:	Global ZP variables decides how many of each will
+;		be placed.
+; USES:
+; *******************************************************************
+place_ghosts:
+	ldy	#0
+	sty	VERA_ADDR_BANK		; No increment
+	ldy	NUMGHOSTS
+.doghosts:
+	beq	.startpghosts
+	; Handle ghosts
+	jsr	find_empty
+	lda	#GHOST
+	sta	VERA_DATA0		; Write ghost
 	inc	VERA_ADDR_LOW
-	lda	#WALL_COL
+	lda	#GHOST_COL		; Write ghost color
+	sta	VERA_DATA0
+	dey
+	jmp	.doghosts
+.startpghosts:
+	ldy	NUMPGHOSTS
+.dopghosts:
+	beq	.startportals
+	; Handle poltergeists
+	jsr	find_empty
+	lda	#PGHOST
+	sta	VERA_DATA0		; Write ghost
+	inc	VERA_ADDR_LOW
+	lda	#GHOST_COL		; Write ghost color
+	sta	VERA_DATA0
+	dey
+	jmp	.dopghosts
+.startportals:
+	ldy	NUMPORTALS
+.doportals:
+	beq	.pg_end
+	; Handle portals
+	jsr	find_empty
+	lda	#PORTAL
+	sta	VERA_DATA0		; Write ghost
+	inc	VERA_ADDR_LOW
+	lda	#GHOST_COL		; Write ghost color
+	sta	VERA_DATA0
+	dey
+	jmp	.doportals
+.pg_end:
+	rts
+
+; *******************************************************************
+; Place walls randomly on the playing field
+; *******************************************************************
+; INPUT:	A * 256 wall chars will be written
+; USES:		TMP0 and TMP1 for counters
+; *******************************************************************
+place_walls:
+	sta	TMP0
+	lda	#0
+	sta	TMP1
+	sta	VERA_ADDR_BANK		; No Increment
+
+.out_loop:
+.in_loop:
+	jsr	find_empty
+	lda	#WALL			; Place a wall char
 	sta	VERA_DATA0
 	inc	TMP1
 	bne	.in_loop
 	dec	TMP0
 	bne	.out_loop
 	rts
-
-
-; *******************************************************************
-; Updates the RANDNUM variable each time the interrupt is called
-; Uses A, but it is restored by KERNAL when the original intterupt
-; handler is called.
-; *******************************************************************
-rnd_irq:
-	lda	VERA_ISR
-	and	#1		; Is this VSYNC?
-	beq	.ri_end		; if not, end
-
-	jsr	randomize
-.ri_end:
-	jmp	old_irq_handler	; Continue to original
 
 ; *******************************************************************
 ; Place a number of Static Wall Chars randomly in the playing field
@@ -158,17 +220,43 @@ place_swalls:
 	rts
 
 ; *******************************************************************
-; Initialize ZP variables with correct values for start
+; Stores 1 in the IRQ_TRIG variable on eache VSYNC interrupt
+; Uses A, but it is restored by KERNAL when the original intterupt
+; handler is called.
 ; *******************************************************************
-; USES:		A
+handle_irq:
+	lda	VERA_ISR
+	and	#1			; Is this VSYNC?
+	beq	.vsync_end		; if not, end
+	sta	IRQ_TRIG
+.vsync_end:
+	jmp	(old_irq_handler)	; Continue to original
+
 ; *******************************************************************
-init_vars:
-	lda	#1		; LEVEL = 1
-	sta	LEVEL
-	sta	RANDNUM
-	lda	#5		; LIVES = 5
-	sta	LIVES
-	sta	RANDNUM+1
+; Clear the playing field
+; *******************************************************************
+; USES:		A, X & Y
+; *******************************************************************
+clear_field:
+	lda	#$10
+	sta	VERA_ADDR_BANK		; Increment by 1
+	ldy	#3			; Start on line 3
+
+.outloop:
+	sty	VERA_ADDR_HIGH
+	ldx	#78
+	lda	#2
+	sta	VERA_ADDR_LOW
+.inloop:
+	lda	#' '
+	sta	VERA_DATA0
+	lda	#WALL_COL
+	sta	VERA_DATA0
+	dex
+	bne	.inloop
+	iny
+	cpy	#59
+	bne	.outloop
 	rts
 
 ; *******************************************************************
@@ -180,8 +268,13 @@ init_vars:
 draw_border:
 	lda	#WALL_COL	; Clear screen with black background
 	sta	COLOR_PORT
-	lda	#147
+	lda	#147		; Do the actual clear
 	jsr	CHROUT
+
+	+gotoxy	0, 1
+	ldx	#<.top_text
+	ldy	#>.top_text
+	jsr	print_str
 
 	lda	#$10
 	sta	VERA_ADDR_BANK	; Set increment to 1
@@ -250,27 +343,6 @@ draw_border:
 ; time. In other words, the randomness of this routine comes from
 ; the fact that the user presses keys at random times.
 ; It was found here:
-; https://codebase64.org/doku.php?id=base:small_fast_8-bit_prng
-; *******************************************************************
-; USES:		A & RANDNUM ZP variable
-; *******************************************************************
-;randomize:
-;	lda	RANDNUM
-;	beq	doeor
-;	asl
-;	beq	noeor
-;	bcc	noeor
-;doeor:	eor	#$1D
-;noeor:	sta	RANDNUM
-;	rts
-
-; *******************************************************************
-; Generates a pseudo random number. It is vital that this function
-; is called in some sort of loop that has user input, otherwise it
-; just generates a sequence of numbers that will be the same every
-; time. In other words, the randomness of this routine comes from
-; the fact that the user presses keys at random times.
-; It was found here:
 ; https://wiki.nesdev.com/w/index.php/Random_number_generator
 ; *******************************************************************
 ; USES:		A
@@ -279,7 +351,7 @@ draw_border:
 randomize:
 	lda	RANDNUM+1
 ;	tax
-	pha
+	pha			; Using stack instead of reg X
 	lsr
 	lsr
 	lsr
@@ -291,7 +363,7 @@ randomize:
 	eor	RANDNUM+0
 	sta	RANDNUM+1
 ;	txa
-	pla
+	pla			; It is fast enough to use the stack
 	sta	RANDNUM+0
 	asl
 	eor	RANDNUM+0
