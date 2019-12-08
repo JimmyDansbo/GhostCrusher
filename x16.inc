@@ -1,6 +1,12 @@
 
 
 IRQ_VEC		= $0314
+TIMER_LOW	= $0294		; The system clock is stored at
+				; $0292 - $0294. The value at $0292
+				; is updated 60 times a second.
+				; This information was found by
+				; using the debugger to step through a call
+				; to RDTIM
 
 JOY1		= $02BC
 JOY2		= $02BF
@@ -32,16 +38,16 @@ VERA_CTRL	= VERA_BASE+5
 VERA_IEN	= VERA_BASE+6
 VERA_ISR	= VERA_BASE+7
 
-TMP0		= $00
-TMP1		= $01
-TMP2		= $02
-TMP3		= $03
-TMP4		= $04
-TMP5		= $05
-TMP6		= $06
-TMP7		= $07
-TMP8		= $08
-TMP9		= $09
+TMP0		= $76
+TMP1		= $77
+TMP2		= $78
+TMP3		= $79
+TMP4		= $7A
+TMP5		= $7B
+TMP6		= $7C
+TMP7		= $7D
+TMP8		= $7E
+TMP9		= $7F
 
 ; *******************************************************************
 ; Initialize VERA with sane values

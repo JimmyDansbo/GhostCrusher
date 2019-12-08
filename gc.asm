@@ -2,15 +2,17 @@
 !byte $0C,$08,$0A,$00,$9E,$20,$32,$30,$36,$34,$00,$00,$00
 *=$0810
 
-RANDNUM		=	$7E		; 2 bytes for RANDOM seed
-IRQ_TRIG	=	RANDNUM-1	; ZP address to show if IRQ triggered
-LEVEL		=	IRQ_TRIG-1	; ZP address to store current level
-LIVES		=	LEVEL-1		; ZP address to store number of lives
-NUMGHOSTS	=	LIVES-1		; Number of 'normal' ghosts
-NUMPGHOSTS	=	NUMGHOSTS-1	; Number of polter geists
-NUMDGHOSTS	=	NUMPGHOSTS-1	; Number of dimentional ghosts
-NUMPORTALS	=	NUMDGHOSTS-1	; Number of portals
-POINTS		=	NUMPORTALS-3	; 3 bytes
+RANDNUM		=	$00		; 2 bytes for RANDOM seed
+IRQ_TRIG	=	RANDNUM+2	; ZP address to show if IRQ triggered
+LEVEL		=	IRQ_TRIG+1	; ZP address to store current level
+LIVES		=	LEVEL+1		; ZP address to store number of lives
+NUMGHOSTS	=	LIVES+1		; Number of 'normal' ghosts
+NUMPGHOSTS	=	NUMGHOSTS+1	; Number of polter geists
+NUMDGHOSTS	=	NUMPGHOSTS+1	; Number of dimentional ghosts
+NUMPORTALS	=	NUMDGHOSTS+1	; Number of portals
+POINTS		=	NUMPORTALS+1	; 3 bytes
+JIFFIES		=	POINTS+3
+PLAYER_DELAY	=	JIFFIES+1
 
 	jmp	main
 
@@ -26,6 +28,12 @@ init_vars:
 	lda	#5		; LIVES = 5
 	sta	LIVES
 	sta	RANDNUM+1
+
+	lda	#60
+	sta	JIFFIES
+
+	lda	#20
+	sta	PLAYER_DELAY
 
 	lda	#2
 	sta	NUMGHOSTS	; NUMGHOSTS = 2
@@ -82,13 +90,99 @@ main:
 	jsr	place_walls
 	jsr	place_ghosts
 	jsr	place_player
-	jmp	.start_wait
 
-
+	; This is the main loop, it will check the IRQ_TRIG variable
+	; each time it is set, it will call the do_game function and
+	; reset the IRQ_TRIG variable. This means that the do_game
+	; function will be called 60 times a second
+game_loop:
+	+check_irq
+	jmp	game_loop
 	rts
 
-do_game:
 
+do_game:
+	jsr	do_clock
+	jsr	do_player
+	rts
+
+; *******************************************************************
+; *******************************************************************
+do_player:
+	rts
+
+; *******************************************************************
+; Ensure that the clock is updated every second. The function
+; expects that VERA is does not increment
+; *******************************************************************
+; USES:		A & Y
+; *******************************************************************
+do_clock:
+	dec	JIFFIES		; Decrement JIFFIES and return
+	beq	.do_update	; if it is not 0
+	rts
+.do_update:
+	lda	#60		; Reset JIFFIES back to 60
+	sta	JIFFIES		; There are 60 Jiffies in a second
+	lda	#1		; The clock is located on line 1
+	sta	VERA_ADDR_HIGH
+;Do low sec
+	lda	#79*2		; Set VERA to address of low part
+	sta	VERA_ADDR_LOW	; of seconds
+	ldy	VERA_DATA0	; Load low part of seconds
+	iny
+	cpy	#$3A		; If it is not equal to $3A
+	bne	.do_write	; write it out and return
+	ldy	#$30		; Else set to $30 = '0'
+	sty	VERA_DATA0	; Write it to screen
+;Do high sec
+	lda	#78*2		; Set VERA to address of high part
+	sta	VERA_ADDR_LOW	; of seconds
+	ldy	VERA_DATA0	; Load high part of seconds
+	iny
+	cpy	#$36		; If it is not equal to $36 ='6'
+	bne	.do_write	; write it out and return
+	ldy	#$30		; Else set to $30 = '0'
+	sty	VERA_DATA0	; Write it to screen
+;Do low min
+	lda	#76*2		; Set VERA to address of low part
+	sta	VERA_ADDR_LOW	; of minutes
+	ldy	VERA_DATA0	; Load low part of minutes
+	iny
+	cpy	#$3A		; If it is not equal to $3A
+	bne	.do_write	; write it out and return
+	ldy	#$30		; Else set to $30 = '0'
+	sty	VERA_DATA0	; Write it to screen
+;Do high min
+	lda	#75*2		; Set VERA to address of high part
+	sta	VERA_ADDR_LOW	; of minutes
+	ldy	VERA_DATA0	; Load high part of minutes
+	iny
+	cpy	#$36		; If it is not equal to $36 = '6'
+	bne	.do_write	; write it out and return
+	ldy	#$30		; Else set to $30 = '0'
+	sty	VERA_DATA0	; Write it to screen
+;Do low hour
+	lda	#73*2		; Set VERA to address of low part
+	sta	VERA_ADDR_LOW	; of hours
+	ldy	VERA_DATA0	; Load low part of hours
+	iny
+	cpy	#$3A		; If it is not equal to $3A
+	bne	.do_write	; Write it out and return
+	ldy	#$30		; Else set to $30 = '0'
+	sty	VERA_DATA0	; Write it to screen
+;Do high hour
+	lda	#72*2		; Set VERA to address of high part
+	sta	VERA_ADDR_LOW	; of hours
+	ldy	VERA_DATA0	; Load high part of hours
+	iny
+	cpy	#$3A		; If it is not equal to $3A
+	bne	.do_write	; Write it out and return
+	ldy	#$30		; Esle set to $30 = '0'
+	sty	VERA_DATA0	; Write it to screen
+	rts
+.do_write:
+	sty	VERA_DATA0	; Write to screen
 	rts
 
 ; *******************************************************************
