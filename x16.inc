@@ -1,5 +1,4 @@
 
-
 IRQ_VEC		= $0314
 TIMER_LOW	= $0294		; The system clock is stored at
 				; $0292 - $0294. The value at $0292
@@ -8,35 +7,24 @@ TIMER_LOW	= $0294		; The system clock is stored at
 				; using the debugger to step through a call
 				; to RDTIM
 
-JOY1		= $02BC
-JOY2		= $02BF
-
 NES_A		= $80
 NES_B		= $40
 NES_SEL		= $20
-NES_STA		= $10
+NES_STA		= $10	; zero flag is already set
+
 
 JOY_UP		= $08
 JOY_DN		= $04
 JOY_LT		= $02
 JOY_RT		= $01
 
-GETJOY		= $FF06
+JOY_SCAN	= $FF53
+JOY_GET		= $FF56
 CHROUT		= $FFD2
 PLOT		= $FFF0
 SCRMOD		= $FF5F
 
-COLOR_PORT	= $0286
-
-VERA_BASE	= $9F20
-VERA_ADDR_LOW	= VERA_BASE+0
-VERA_ADDR_HIGH	= VERA_BASE+1
-VERA_ADDR_BANK	= VERA_BASE+2
-VERA_DATA0	= VERA_BASE+3
-VERA_DATA1	= VERA_BASE+4
-VERA_CTRL	= VERA_BASE+5
-VERA_IEN	= VERA_BASE+6
-VERA_ISR	= VERA_BASE+7
+COLOR_PORT	= $0376
 
 TMP0		= $76
 TMP1		= $77
@@ -48,18 +36,6 @@ TMP6		= $7C
 TMP7		= $7D
 TMP8		= $7E
 TMP9		= $7F
-
-; *******************************************************************
-; Initialize VERA with sane values
-; *******************************************************************
-; USES:		A
-; *******************************************************************
-!macro vera_init {
-	lda	#0
-	sta	VERA_CTRL	; No reset, use data0
-	lda	#$10
-	sta	VERA_ADDR_BANK	; Increment by 1
-}
 
 ; *******************************************************************
 ; Save the address of the original interrupt handler
@@ -95,13 +71,12 @@ TMP9		= $7F
 ; *******************************************************************
 ; USES:		A
 ; *******************************************************************
-!macro check_irq {
+!macro check_irq .handler {
 	lda	IRQ_TRIG
 	beq	.done
 	; VSYNC IRQ has occurred, handle
-	jsr	do_game
-	lda	#0
-	sta	IRQ_TRIG
+	jsr	.handler
+	lsr	IRQ_TRIG
 .done:
 }
 

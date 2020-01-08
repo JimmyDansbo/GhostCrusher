@@ -1,3 +1,5 @@
+!to "gc.prg", cbm
+
 *=$0801
 !byte $0C,$08,$0A,$00,$9E,' ','2','0','6','4',$00,$00,$00
 *=$0810
@@ -20,6 +22,11 @@ PLAYER_DELAY	=	$11
 PLAYER_X	=	$12
 PLAYER_Y	=	$13
 RANDSEED	=	$18		; 2 bytes
+
+DIR_DOWN	= 1
+DIR_LEFT	= 2
+DIR_RIGHT	= 3
+DIR_UP		= 4
 
 	jmp	main
 
@@ -69,6 +76,7 @@ init_vars:
 
 !src "x16.inc"
 !src "text.inc"
+!src "vera.inc"
 
 ; *******************************************************************
 ; Starting point of program
@@ -85,16 +93,16 @@ main:
 	; to do random numbers
 .start_wait:
 	jsr	randomize
-	jsr	GETJOY
-	lda	JOY1
+	lda	#0		; Select first joystick
+	jsr	JOY_GET
 	and	#NES_STA
-	bne	.start_wait
+	beq	.start_wait
 
 	ldx	#0		; If there is 0 in RANDSEED
 	cpx	RANDSEED	; We save RANDNUM in RANDSEED
 	bne	+		; Otherwise we copy RANDSEED to RANDNUM
-	ldx	RANDNUM
-	stx	RANDSEED
+	ldx	RANDNUM		; This makes it possible to make levels
+	stx	RANDSEED	; that can be loaded by setting RANDSEED
 	ldx	RANDNUM+1
 	stx	RANDSEED+1
 +	ldx	RANDSEED
@@ -102,12 +110,17 @@ main:
 	ldx	RANDSEED+1
 	stx	RANDNUM+1
 
+	lda	#0		; Go to 40x30
+	sec
+	jsr	SCRMOD
+
 	jsr	draw_border
-	ldy	#12
+	ldy	#4		; Place 4 static walls
 	jsr	place_swalls
-	lda	#6
+	lda	#85		; Place 85*5 walls
 	jsr	place_walls
-	jsr	place_ghosts
+
+	jsr	place_ghosts	; Place ghosts according to ZP variables
 	jsr	place_player
 
 	; This is the main loop, it will check the IRQ_TRIG variable
@@ -115,128 +128,158 @@ main:
 	; reset the IRQ_TRIG variable. This means that the do_game
 	; function will be called 60 times a second
 game_loop:
-	+check_irq
+	+check_irq do_game
 	jmp	game_loop
+
+.main_end:			; So far, we never get here
 	rts
 
 
 do_game:
-	jsr	do_clock
 	jsr	do_getjoy
+	jsr	do_clock
 	jsr	do_player
 	rts
 
 ; *******************************************************************
+; Get joystick input from 1st joystick and store in ZP varables
+; *******************************************************************
+; USES:		.A, .Y & TMP0
 ; *******************************************************************
 do_getjoy:
-	jsr	GETJOY
+	jsr	JOY_SCAN
+	lda	#0		; Select first joystick
+	jsr	JOY_GET
 	ldy	#1
-	lda	JOY1
+	sta	TMP0		; Save current joystick state
 	and	#JOY_DN
 	bne	.check_lt
 	sty	BTN_DN
+;	jmp	+
 .check_lt:
-	lda	JOY1
+;	lsr	BTN_DN
++	lda	TMP0
 	and	#JOY_LT
 	bne	.check_rt
 	sty	BTN_LT
+;	jmp	+
 .check_rt:
-	lda	JOY1
+;	lsr	BTN_LT
++	lda	TMP0
 	and	#JOY_RT
 	bne	.check_up
 	sty	BTN_RT
+;	jmp	+
 .check_up:
-	lda	JOY1
+;	lsr	BTN_RT
++	lda	TMP0
 	and	#JOY_UP
 	bne	.dgj_end
 	sty	BTN_UP
+;	rts
 .dgj_end
+;	lsr	BTN_UP
 	rts
 
 ; *******************************************************************
 ; *******************************************************************
 can_move:
-	sta	TMP2
+.dir 		= TMP2
+.prev_field	= TMP3
+.cord_x		= TMP0
+.cord_y		= TMP1
+	sta	.dir		; Save direction in TMP2
 	lda	#0
-	sta	TMP3		; Hold previous field
--	lda	TMP2
-	cmp	#1
+	sta	.prev_field	; Hold previous field
+-	lda	.dir
+	cmp	#DIR_DOWN
 	bne	.is_lt
-	inc	TMP1		; INC Y
+	inc	.cord_y		; INC Y
 	jmp	.do_find
 .is_lt:
-	cmp	#2
+	cmp	#DIR_LEFT
 	bne	.is_rt
-	dec	TMP0		; DEC X
+	dec	.cord_x		; DEC X
 	jmp	.do_find
 .is_rt:
-	cmp	#3
+	cmp	#DIR_RIGHT
 	bne	.is_up
-	inc	TMP0		; INC X
+	inc	.cord_x		; INC X
 	jmp	.do_find
 .is_up:
-	dec	TMP1		; DEC Y
+	dec	.cord_y		; DEC Y
 
 .do_find:
-	lda	TMP1		; Write Y to VERA
+	lda	.cord_y		; Write Y to VERA
 	sta	VERA_ADDR_HIGH
-	lda	TMP0		; Load X
+	lda	.cord_x		; Load X
 	asl
 	sta	VERA_ADDR_LOW	; Write X to VERA
 	lda	VERA_DATA0	; Load char at address
-	cmp	#' '
+
+	cmp	#' '		; If this is not a clear space, check next
 	bne	.is_ghost
-	; zero flag is already set
+	lda	.prev_field	; Load previous field
+	cmp	#GHOST
+	beq	+
+	cmp	#PGHOST
+	beq	+
+	cmp	#DGHOST
+	beq	+
+	cmp	#PORTAL
+	beq	+
+	lda	#0
 	rts
++	lda	#1
 .is_ghost:
 	cmp	#GHOST		; If this is not ghost, check next
 	bne	.is_pghost
-	lda	TMP3		; Load previous field
+	lda	.prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts			; (allthough it will kill the player)
 +	ldy	#GHOST		; Save the current field
-	sty	TMP3
+	sty	.prev_field
 	jmp	-		; Check next field
 
 .is_pghost:
 	cmp	#PGHOST		; If this is not pghost, check next
 	bne	.is_dghost
-	lda	TMP3		; Load previous field
+	lda	.prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts
 +	ldy	#PGHOST		; Save the current field
-	sty	TMP3
+	sty	.prev_field
 	jmp	-		; Check next field
 .is_dghost:
 	cmp	#DGHOST		; If this is not dghost, check next
 	bne	.is_portal
-	lda	TMP3		; Load previous field
+	lda	.prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts
 +	ldy	#DGHOST		; Save the current field
-	sty	TMP3
+	sty	.prev_field
 	jmp	-		; Check next field
 .is_portal:
 	cmp	#PORTAL		; If this is not portal, check next
 	bne	.is_wall
-	lda	TMP3		; Load previous field
+	lda	.prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts
 +	ldy	#PORTAL		; Save the current field
-	sty	TMP3
+	sty	.prev_field
 	jmp	-		; Check next field
 .is_wall:
 	cmp	#WALL		; If this is not wall, check next
 	bne	.is_swall
-	lda	TMP3		; Load previous field
+	lda	.prev_field	; Load previous field
 	cmp	#GHOST		; If previous is not ghost, check next
 	bne	+
 	lda	#0		; Set zero flag and return (we can move)
@@ -254,10 +297,10 @@ can_move:
 	lda	#1		; Reset zero and return (we can not move)
 	rts
 +	ldy	#WALL		; Save the current field
-	sty	TMP3
+	sty	.prev_field
 	jmp	-		; Check next field
 .is_swall:
-	lda	TMP3		; Load previous field
+	lda	.prev_field	; Load previous field
 	cmp	#GHOST		; If previous was not ghost, check next
 	bne	+
 	lda	#0		; Set zero and return (we can move)
@@ -280,7 +323,61 @@ can_move:
 ; *******************************************************************
 ; *******************************************************************
 do_move:
-; Handle moving
+.cord_x = TMP0
+.cord_y	= TMP1
+;.prev_field = TMP3		Set in can_move function
+
+	ldx	PLAYER_X	; Save current coordinates to do
+	stx	.cord_x		; claculations on them ?
+	ldx	PLAYER_Y
+	stx	.cord_y
+
+	cmp	#DIR_DOWN
+	bne	.is_le
+	inc	.cord_y		; INC Y
+	jmp	.do_move
+.is_le:
+	cmp	#DIR_LEFT
+	bne	.is_ri
+	dec	.cord_x		; DEC X
+	jmp	.do_move
+.is_ri:
+	cmp	#DIR_RIGHT
+	bne	.is_north
+	inc	.cord_x		; INC X
+	jmp	.do_move
+.is_north:
+	dec	.cord_y		; DEC Y
+
+.do_move:
+	+vera_goxy .cord_x, .cord_y
+	inc	VERA_ADDR_LOW	; We want the color
+	lda	VERA_DATA0	; Save what was where player moves to
+	sta	.prev_field
+	dec	VERA_ADDR_LOW	; Now we overwrite both char and color
+
+	lda	#PLAYER		; Draw player at new place
+	sta	VERA_DATA0
+	inc	VERA_ADDR_LOW
+	lda	#PLAY_COL
+	sta	VERA_DATA0
+
+	+vera_goxy PLAYER_X, PLAYER_Y
+	lda	#' '		; Draw a space where player was
+	sta	VERA_DATA0
+	inc	VERA_ADDR_LOW
+	lda	#PLAY_COL
+	sta	VERA_DATA0
+
+	lda	.cord_y		; Set new player coordinates
+	sta	PLAYER_Y
+	lda	.cord_x
+	sta	PLAYER_X
+
+	lda	.prev_field
+	cmp	#GHOST_COL
+	
+
 	rts
 
 ; *******************************************************************
@@ -290,51 +387,55 @@ do_player:
 	beq	.do_player
 	rts
 .do_player:
-	lda	#20
+	lda	#20		; This should be a variable
 	sta	PLAYER_DELAY
 
-	lda	PLAYER_X
-	sta	TMP0
+	lda	PLAYER_X	; Save current coordinates to do
+	sta	TMP0		; claculations on them ?
 	lda	PLAYER_Y
 	sta	TMP1
 
 	lda	BTN_DN
 	beq	.btn_lt
 	; Handle down button
-	lda	#1
+	lsr	BTN_DN		; Reset BTN_DN back to 0
+	lda	#DIR_DOWN
 	jsr	can_move
 	bne	.dp_end
-	lda	#1
+	lda	#DIR_DOWN
 	jsr	do_move
 	jmp	.dp_end
 .btn_lt:
 	lda	BTN_LT
 	beq	.btn_rt
 	; Handle left button
-	lda	#2
+	lsr	BTN_LT		; Reset BTN_LT back to 0
+	lda	#DIR_LEFT
 	jsr	can_move
 	bne	.dp_end
-	lda	#2
+	lda	#DIR_LEFT
 	jsr	do_move
 	jmp	.dp_end
 .btn_rt:
 	lda	BTN_RT
 	beq	.btn_up
 	; Handle right button
-	lda	#3
+	lsr	BTN_RT		; Reset BTN_RT back to 0
+	lda	#DIR_RIGHT
 	jsr	can_move
 	bne	.dp_end
-	lda	#3
+	lda	#DIR_RIGHT
 	jsr	do_move
 	jmp	.dp_end
 .btn_up:
 	lda	BTN_UP
 	beq	.dp_end
 	; Handle up button
-	lda	#4
+	lsr	BTN_UP		; Reset BTN_UP back to 0
+	lda	#DIR_UP
 	jsr	can_move
 	bne	.dp_end
-	lda	#4
+	lda	#DIR_UP
 	jsr	do_move
 
 .dp_end:
@@ -342,7 +443,7 @@ do_player:
 
 ; *******************************************************************
 ; Ensure that the clock is updated every second. The function
-; expects that VERA is does not increment
+; expects that VERA does not increment
 ; *******************************************************************
 ; USES:		A & Y
 ; *******************************************************************
@@ -356,7 +457,7 @@ do_clock:
 	lda	#1		; The clock is located on line 1
 	sta	VERA_ADDR_HIGH
 ;Do low sec
-	lda	#79*2		; Set VERA to address of low part
+	lda	#39*2		; Set VERA to address of low part
 	sta	VERA_ADDR_LOW	; of seconds
 	ldy	VERA_DATA0	; Load low part of seconds
 	iny
@@ -365,7 +466,7 @@ do_clock:
 	ldy	#$30		; Else set to $30 = '0'
 	sty	VERA_DATA0	; Write it to screen
 ;Do high sec
-	lda	#78*2		; Set VERA to address of high part
+	lda	#38*2		; Set VERA to address of high part
 	sta	VERA_ADDR_LOW	; of seconds
 	ldy	VERA_DATA0	; Load high part of seconds
 	iny
@@ -374,7 +475,7 @@ do_clock:
 	ldy	#$30		; Else set to $30 = '0'
 	sty	VERA_DATA0	; Write it to screen
 ;Do low min
-	lda	#76*2		; Set VERA to address of low part
+	lda	#36*2		; Set VERA to address of low part
 	sta	VERA_ADDR_LOW	; of minutes
 	ldy	VERA_DATA0	; Load low part of minutes
 	iny
@@ -383,7 +484,7 @@ do_clock:
 	ldy	#$30		; Else set to $30 = '0'
 	sty	VERA_DATA0	; Write it to screen
 ;Do high min
-	lda	#75*2		; Set VERA to address of high part
+	lda	#35*2		; Set VERA to address of high part
 	sta	VERA_ADDR_LOW	; of minutes
 	ldy	VERA_DATA0	; Load high part of minutes
 	iny
@@ -392,7 +493,7 @@ do_clock:
 	ldy	#$30		; Else set to $30 = '0'
 	sty	VERA_DATA0	; Write it to screen
 ;Do low hour
-	lda	#73*2		; Set VERA to address of low part
+	lda	#33*2		; Set VERA to address of low part
 	sta	VERA_ADDR_LOW	; of hours
 	ldy	VERA_DATA0	; Load low part of hours
 	iny
@@ -401,7 +502,7 @@ do_clock:
 	ldy	#$30		; Else set to $30 = '0'
 	sty	VERA_DATA0	; Write it to screen
 ;Do high hour
-	lda	#72*2		; Set VERA to address of high part
+	lda	#32*2		; Set VERA to address of high part
 	sta	VERA_ADDR_LOW	; of hours
 	ldy	VERA_DATA0	; Load high part of hours
 	iny
@@ -417,15 +518,15 @@ do_clock:
 ; *******************************************************************
 ; Place player randomly on the playing field
 ; *******************************************************************
-; USES:
+; USES:		.A, .X & .Y
 ; *******************************************************************
 place_player:
-	jsr	find_empty
-	sty	PLAYER_Y
+	jsr	find_empty	; Find an empty field
+	sty	PLAYER_Y	; Save X and Y coordinates
 	stx	PLAYER_X
-	lda	#PLAYER
+	lda	#PLAYER		; Draw the player char
 	sta	VERA_DATA0
-	inc	VERA_ADDR_LOW
+	inc	VERA_ADDR_LOW	; Set the correct color
 	lda	#PLAY_COL
 	sta	VERA_DATA0
 	rts
@@ -439,16 +540,16 @@ place_player:
 ; RETURNS:	X and Y as the coordinates found
 ; *******************************************************************
 find_empty:
-	+rand	3, 59
-	sta	VERA_ADDR_HIGH
-	tay
-	+rand	1, 79
-	tax
-	asl
-	sta	VERA_ADDR_LOW
-	lda	VERA_DATA0
+	+rand	3, 29		; Find number between 3 and 29
+	sta	VERA_ADDR_HIGH	; Set it as Y coordinate
+	tay			; Save it in Y register
+	+rand	1, 39		; Find number between 1 and 39
+	tax			; Save it in X register
+	asl			; Multiply by 2
+	sta	VERA_ADDR_LOW	; Set it as X coordinate
+	lda	VERA_DATA0	; Read character at coordinate
 	cmp	#' '
-	bne	find_empty
+	bne	find_empty	; If char != ' ', try again
 	rts
 
 ; *******************************************************************
@@ -456,13 +557,13 @@ find_empty:
 ; *******************************************************************
 ; INPUT:	Global ZP variables decides how many of each will
 ;		be placed.
-; USES:
+; USES:		A & Y
 ; *******************************************************************
 place_ghosts:
 	ldy	#0
 	sty	VERA_ADDR_BANK		; No increment
-	ldy	NUMGHOSTS
-	sty	TMP0
+	ldy	NUMGHOSTS		; Copy NUMGHOSTS to TMP to
+	sty	TMP0			; use it as counter
 .doghosts:
 	beq	.startpghosts
 	; Handle ghosts
@@ -508,21 +609,22 @@ place_ghosts:
 ; *******************************************************************
 ; Place walls randomly on the playing field
 ; *******************************************************************
-; INPUT:	A * 256 wall chars will be written
+; INPUT:	A * 5 wall chars will be written
 ; USES:		TMP0 and TMP1 for counters
 ; *******************************************************************
 place_walls:
 	sta	TMP0
 	lda	#0
-	sta	TMP1
 	sta	VERA_ADDR_BANK		; No Increment
 
 .out_loop:
+	lda	#5
+	sta	TMP1
 .in_loop:
 	jsr	find_empty
 	lda	#WALL			; Place a wall char
 	sta	VERA_DATA0
-	inc	TMP1
+	dec	TMP1
 	bne	.in_loop
 	dec	TMP0
 	bne	.out_loop
@@ -535,11 +637,11 @@ place_walls:
 ; USES:		A
 ; *******************************************************************
 place_swalls:
-	+rand 2, 77
+	+rand 2, 37
 	asl				; Multiply by 2 for X coord
 	sta	VERA_ADDR_LOW
 
-	+rand 4, 57
+	+rand 4, 27
 	sta	VERA_ADDR_HIGH
 
 	lda	#SWALL			; Set the SWALL character
@@ -576,7 +678,7 @@ clear_field:
 
 .outloop:
 	sty	VERA_ADDR_HIGH
-	ldx	#78
+	ldx	#38
 	lda	#2
 	sta	VERA_ADDR_LOW
 .inloop:
@@ -587,7 +689,7 @@ clear_field:
 	dex
 	bne	.inloop
 	iny
-	cpy	#59
+	cpy	#29
 	bne	.outloop
 	rts
 
@@ -603,9 +705,13 @@ draw_border:
 	lda	#147		; Do the actual clear
 	jsr	CHROUT
 
+	+gotoxy	0, 0
+	ldx	#<.top_line1
+	ldy	#>.top_line1
+	jsr	print_str
 	+gotoxy	0, 1
-	ldx	#<.top_text
-	ldy	#>.top_text
+	ldx	#<.top_line2
+	ldy	#>.top_line2
 	jsr	print_str
 
 	lda	#$10
@@ -616,8 +722,8 @@ draw_border:
 	ldy	#0		; Column 0 = X coordinate
 	sty	VERA_ADDR_LOW
 
-	; Change 80 characters across screen
-	ldy	#80
+	; Change 40 characters across screen
+	ldy	#40
 .topline:
 	lda	#SWALL
 	sta	VERA_DATA0
@@ -626,12 +732,12 @@ draw_border:
 	dey
 	bne	.topline
 
-	ldy	#59		; Line = 59 = Y coordinate
+	ldy	#29		; Line = 29 = Y coordinate
 	sty	VERA_ADDR_HIGH
 	ldy	#0		; Column 0 = X coordinate
 	sty	VERA_ADDR_LOW
 
-	ldy	#80
+	ldy	#40
 .bottomline:
 	lda	#SWALL
 	sta	VERA_DATA0
@@ -640,7 +746,7 @@ draw_border:
 	dey
 	bne	.bottomline
 
-	ldy	#3
+	ldy	#2
 	ldx	#0
 .leftline:
 	stx	VERA_ADDR_LOW
@@ -650,11 +756,11 @@ draw_border:
 	lda	#SWALL_COL
 	sta	VERA_DATA0
 	iny
-	cpy	#59
+	cpy	#29
 	bne	.leftline
 
-	ldy	#3
-	ldx	#(79*2)
+	ldy	#2
+	ldx	#(39*2)
 .rightline:
 	stx	VERA_ADDR_LOW
 	sty	VERA_ADDR_HIGH
@@ -663,7 +769,7 @@ draw_border:
 	lda	#SWALL_COL
 	sta	VERA_DATA0
 	iny
-	cpy	#59
+	cpy	#29
 	bne	.rightline
 
 	rts
