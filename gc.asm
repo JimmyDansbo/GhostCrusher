@@ -22,6 +22,7 @@ PLAYER_DELAY	=	$11
 PLAYER_X	=	$12
 PLAYER_Y	=	$13
 RANDSEED	=	$18		; 2 bytes
+PLAYER_SPEED	=	$20
 
 DIR_DOWN	= 1
 DIR_LEFT	= 2
@@ -46,16 +47,23 @@ init_vars:
 	lda	#60
 	sta	JIFFIES
 
-	lda	#20
+	lda	#4
 	sta	PLAYER_DELAY
+	sta	PLAYER_SPEED
 
-	lda	#2
+	lda	#3
 	sta	NUMGHOSTS	; NUMGHOSTS = 2
-	lda	#0
-	sta	IRQ_TRIG	; IRQ_TRIG = 0
 	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
 	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
 	sta	NUMPORTALS	; NUMPORTALS = 0
+
+;	lda	#2
+;	sta	NUMGHOSTS	; NUMGHOSTS = 2
+	lda	#0
+	sta	IRQ_TRIG	; IRQ_TRIG = 0
+;	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
+;	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
+;	sta	NUMPORTALS	; NUMPORTALS = 0
 	sta	POINTS		; POINTS = 000000 (BCD)
 	sta	POINTS+1
 	sta	POINTS+2
@@ -97,6 +105,7 @@ main:
 	jsr	JOY_GET
 	and	#NES_STA
 	beq	.start_wait
+do_game:
 
 	ldx	#0		; If there is 0 in RANDSEED
 	cpx	RANDSEED	; We save RANDNUM in RANDSEED
@@ -128,17 +137,18 @@ main:
 	; reset the IRQ_TRIG variable. This means that the do_game
 	; function will be called 60 times a second
 game_loop:
-	+check_irq do_game
-	jmp	game_loop
+	lda	IRQ_TRIG	; Load IRQ_TRIG
+	beq	game_loop
+	; VSYNC IRQ has occurred, handle
+	lsr	IRQ_TRIG	; Reset IRQ_TRIG
 
-.main_end:			; So far, we never get here
-	rts
-
-
-do_game:
 	jsr	do_getjoy
 	jsr	do_clock
 	jsr	do_player
+
+	jmp	game_loop
+
+.main_end:			; So far, we never get here
 	rts
 
 ; *******************************************************************
@@ -155,71 +165,82 @@ do_getjoy:
 	and	#JOY_DN
 	bne	.check_lt
 	sty	BTN_DN
-;	jmp	+
+	jmp	+
 .check_lt:
-;	lsr	BTN_DN
+	lsr	BTN_DN
 +	lda	TMP0
 	and	#JOY_LT
 	bne	.check_rt
 	sty	BTN_LT
-;	jmp	+
+	jmp	+
 .check_rt:
-;	lsr	BTN_LT
+	lsr	BTN_LT
 +	lda	TMP0
 	and	#JOY_RT
 	bne	.check_up
 	sty	BTN_RT
-;	jmp	+
+	jmp	+
 .check_up:
-;	lsr	BTN_RT
+	lsr	BTN_RT
 +	lda	TMP0
 	and	#JOY_UP
 	bne	.dgj_end
 	sty	BTN_UP
-;	rts
+	rts
 .dgj_end
-;	lsr	BTN_UP
+	lsr	BTN_UP
 	rts
 
 ; *******************************************************************
+; Calculate new coordinates according to the direction stored in .A
+; *******************************************************************
+!macro newcord .xcord, .ycord {
+	cmp	#DIR_DOWN
+	bne	+
+	inc	.ycord
+	jmp	.endm
++	cmp	#DIR_LEFT
+	bne	+
+	dec	.xcord
+	jmp	.endm
++	cmp	#DIR_RIGHT
+	bne	+
+	inc	.xcord
+	jmp	.endm
++	dec	.ycord
+.endm:
+}
+
+
+; *******************************************************************
+; Function check if it is possible to move in the direction the user
+; has chosen.
+; *******************************************************************
+; USES:		.A, .Y, TMP0, TMP1, TMP2, TMP3
+; RETURNS:	.Z set if move is possible
 ; *******************************************************************
 can_move:
-.dir 		= TMP2
-.prev_field	= TMP3
-.cord_x		= TMP0
-.cord_y		= TMP1
-	sta	.dir		; Save direction in TMP2
+@dir 		= TMP2
+@prev_field	= TMP3
+@cord_x		= TMP0
+@cord_y		= TMP1
+	sta	@dir		; Save direction in TMP2
 	lda	#0
-	sta	.prev_field	; Hold previous field
--	lda	.dir
-	cmp	#DIR_DOWN
-	bne	.is_lt
-	inc	.cord_y		; INC Y
-	jmp	.do_find
-.is_lt:
-	cmp	#DIR_LEFT
-	bne	.is_rt
-	dec	.cord_x		; DEC X
-	jmp	.do_find
-.is_rt:
-	cmp	#DIR_RIGHT
-	bne	.is_up
-	inc	.cord_x		; INC X
-	jmp	.do_find
-.is_up:
-	dec	.cord_y		; DEC Y
+	sta	@prev_field	; Hold previous field
+-	lda	@dir
 
-.do_find:
-	lda	.cord_y		; Write Y to VERA
+	+newcord @cord_x, @cord_y
+
+	lda	@cord_y		; Write Y to VERA
 	sta	VERA_ADDR_HIGH
-	lda	.cord_x		; Load X
+	lda	@cord_x		; Load X
 	asl
 	sta	VERA_ADDR_LOW	; Write X to VERA
 	lda	VERA_DATA0	; Load char at address
 
 	cmp	#' '		; If this is not a clear space, check next
-	bne	.is_ghost
-	lda	.prev_field	; Load previous field
+	bne	@is_ghost
+	lda	@prev_field	; Load previous field
 	cmp	#GHOST
 	beq	+
 	cmp	#PGHOST
@@ -231,55 +252,56 @@ can_move:
 	lda	#0
 	rts
 +	lda	#1
-.is_ghost:
+	rts
+@is_ghost:
 	cmp	#GHOST		; If this is not ghost, check next
-	bne	.is_pghost
-	lda	.prev_field	; Load previous field
+	bne	@is_pghost
+	lda	@prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts			; (allthough it will kill the player)
 +	ldy	#GHOST		; Save the current field
-	sty	.prev_field
+	sty	@prev_field
 	jmp	-		; Check next field
 
-.is_pghost:
+@is_pghost:
 	cmp	#PGHOST		; If this is not pghost, check next
-	bne	.is_dghost
-	lda	.prev_field	; Load previous field
+	bne	@is_dghost
+	lda	@prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts
 +	ldy	#PGHOST		; Save the current field
-	sty	.prev_field
+	sty	@prev_field
 	jmp	-		; Check next field
-.is_dghost:
+@is_dghost:
 	cmp	#DGHOST		; If this is not dghost, check next
-	bne	.is_portal
-	lda	.prev_field	; Load previous field
+	bne	@is_portal
+	lda	@prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts
 +	ldy	#DGHOST		; Save the current field
-	sty	.prev_field
+	sty	@prev_field
 	jmp	-		; Check next field
-.is_portal:
+@is_portal:
 	cmp	#PORTAL		; If this is not portal, check next
-	bne	.is_wall
-	lda	.prev_field	; Load previous field
+	bne	@is_wall
+	lda	@prev_field	; Load previous field
 	cmp	#WALL		; If it is a WALL field, we need to
 	beq	+		; see what next field is
 	lda	#0		; Else return that we can move
 	rts
 +	ldy	#PORTAL		; Save the current field
-	sty	.prev_field
+	sty	@prev_field
 	jmp	-		; Check next field
-.is_wall:
+@is_wall:
 	cmp	#WALL		; If this is not wall, check next
-	bne	.is_swall
-	lda	.prev_field	; Load previous field
+	bne	@is_swall
+	lda	@prev_field	; Load previous field
 	cmp	#GHOST		; If previous is not ghost, check next
 	bne	+
 	lda	#0		; Set zero flag and return (we can move)
@@ -297,10 +319,10 @@ can_move:
 	lda	#1		; Reset zero and return (we can not move)
 	rts
 +	ldy	#WALL		; Save the current field
-	sty	.prev_field
+	sty	@prev_field
 	jmp	-		; Check next field
-.is_swall:
-	lda	.prev_field	; Load previous field
+@is_swall:
+	lda	@prev_field	; Load previous field
 	cmp	#GHOST		; If previous was not ghost, check next
 	bne	+
 	lda	#0		; Set zero and return (we can move)
@@ -320,40 +342,28 @@ can_move:
 +	lda	#1		; Reset zero and return (we can not move)
 	rts
 
+
+
 ; *******************************************************************
 ; *******************************************************************
 do_move:
-.cord_x = TMP0
-.cord_y	= TMP1
-;.prev_field = TMP3		Set in can_move function
+@cord_x = TMP0
+@cord_y	= TMP1
+@prev_field = TMP3
+@dir	= TMP2
+
+	sta	@dir		; Save direction
 
 	ldx	PLAYER_X	; Save current coordinates to do
-	stx	.cord_x		; claculations on them ?
+	stx	@cord_x		; claculations on them ?
 	ldx	PLAYER_Y
-	stx	.cord_y
+	stx	@cord_y
 
-	cmp	#DIR_DOWN
-	bne	.is_le
-	inc	.cord_y		; INC Y
-	jmp	.do_move
-.is_le:
-	cmp	#DIR_LEFT
-	bne	.is_ri
-	dec	.cord_x		; DEC X
-	jmp	.do_move
-.is_ri:
-	cmp	#DIR_RIGHT
-	bne	.is_north
-	inc	.cord_x		; INC X
-	jmp	.do_move
-.is_north:
-	dec	.cord_y		; DEC Y
-
-.do_move:
-	+vera_goxy .cord_x, .cord_y
+	+newcord @cord_x, @cord_y
+	+vera_goxy @cord_x, @cord_y
 	inc	VERA_ADDR_LOW	; We want the color
 	lda	VERA_DATA0	; Save what was where player moves to
-	sta	.prev_field
+	sta	@prev_field
 	dec	VERA_ADDR_LOW	; Now we overwrite both char and color
 
 	lda	#PLAYER		; Draw player at new place
@@ -369,15 +379,104 @@ do_move:
 	lda	#PLAY_COL
 	sta	VERA_DATA0
 
-	lda	.cord_y		; Set new player coordinates
+	lda	@cord_y		; Set new player coordinates
 	sta	PLAYER_Y
-	lda	.cord_x
+	lda	@cord_x
 	sta	PLAYER_X
 
-	lda	.prev_field
-	cmp	#GHOST_COL
-	
+	lda	@prev_field	; Load color of the field that was overwritten
+	cmp	#GHOST_COL	; If it is a ghost, the player dies
+	bne	+		; else
+	jsr	player_died
+	rts
 
++	cmp	#PLAY_COL	; If it is PLAY_COL, it is an empty field and
+	bne	@move_wall	; We are done.
+	rts
+
+@move_wall:
+	; Handle moving of walls.
+	lda	@dir
+	+newcord @cord_x, @cord_y
+	+vera_goxy @cord_x, @cord_y
+	lda	VERA_DATA0
+	sta	@prev_field
+	inc	VERA_ADDR_LOW
+	lda	VERA_DATA0
+	cmp	#GHOST_COL	; Have we squashed a ghost
+	bne	+
+	lda	#WALL_COL	; Write the WALL color
+	sta	VERA_DATA0
+	dec	VERA_ADDR_LOW
+	lda	#WALL		; Write the WALL character
+	sta	VERA_DATA0
+	jsr	ghost_killed	; Handle a dead ghost
+	rts
++	cmp	#PLAY_COL	; Empty field
+	bne	+
+	lda	#WALL_COL	; Write the WALL color
+	sta	VERA_DATA0
+	dec	VERA_ADDR_LOW
+	lda	#WALL		; Write the WALL character
+	sta	VERA_DATA0
+	rts
+
++	jmp	@move_wall
+
+	rts			; we never get here
+
+; *******************************************************************
+; *******************************************************************
+ghost_killed:
+@prev_field = TMP3
+	lda	@prev_field
+	cmp	#GHOST
+	bne	+
+	dec	NUMGHOSTS
+	jmp	@addit
++	cmp	#PORTAL
+	bne	+
+	dec	NUMPORTALS
+	jmp	@addit
++	cmp	#PGHOST
+	bne	+
+	dec	NUMPGHOSTS
+	jmp	@addit
++	cmp	#DGHOST
+	bne	@addit
+	dec	NUMDGHOSTS
+@addit:
+	sed
+	lda	NUMGHOSTS
+	clc
+	adc	NUMPORTALS
+	adc	NUMPGHOSTS
+	adc	NUMDGHOSTS
+	cld
+
+	sta	TMP0
+	lsr
+	lsr
+	lsr
+	lsr
+	ora	#$30
+	tax
+	lda	#0
+	sta	VERA_ADDR_HIGH
+	lda	#35*2
+	sta	VERA_ADDR_LOW
+	stx	VERA_DATA0
+	inc	VERA_ADDR_LOW
+	inc	VERA_ADDR_LOW
+	lda	TMP0
+	and	#$0F
+	ora	#$30
+	sta	VERA_DATA0
+	rts
+; *******************************************************************
+; *******************************************************************
+player_died:
+	jsr	*
 	rts
 
 ; *******************************************************************
@@ -387,7 +486,7 @@ do_player:
 	beq	.do_player
 	rts
 .do_player:
-	lda	#20		; This should be a variable
+	lda	PLAYER_SPEED
 	sta	PLAYER_DELAY
 
 	lda	PLAYER_X	; Save current coordinates to do
@@ -593,7 +692,7 @@ place_ghosts:
 	ldy	NUMPORTALS
 	sty	TMP0
 .doportals:
-	beq	.pg_end
+	beq	.startdghosts
 	; Handle portals
 	jsr	find_empty
 	lda	#PORTAL
@@ -603,6 +702,20 @@ place_ghosts:
 	sta	VERA_DATA0
 	dec	TMP0
 	jmp	.doportals
+.startdghosts:
+	ldy	NUMDGHOSTS
+	sty	TMP0
+.dodghosts:
+	beq	.pg_end
+	; Handle dimentional ghosts
+	jsr	find_empty
+	lda	#DGHOST
+	sta	VERA_DATA0		; Write ghost
+	inc	VERA_ADDR_LOW
+	lda	#GHOST_COL		; Write ghost color
+	sta	VERA_DATA0
+	dec	TMP0
+	jmp	.dodghosts
 .pg_end:
 	rts
 
@@ -623,6 +736,9 @@ place_walls:
 .in_loop:
 	jsr	find_empty
 	lda	#WALL			; Place a wall char
+	sta	VERA_DATA0
+	inc	VERA_ADDR_LOW
+	lda	#WALL_COL
 	sta	VERA_DATA0
 	dec	TMP1
 	bne	.in_loop
@@ -684,7 +800,7 @@ clear_field:
 .inloop:
 	lda	#' '
 	sta	VERA_DATA0
-	lda	#WALL_COL
+	lda	#PLAY_COL
 	sta	VERA_DATA0
 	dex
 	bne	.inloop
@@ -700,7 +816,7 @@ clear_field:
 ; USES:		A, X & Y
 ; *******************************************************************
 draw_border:
-	lda	#WALL_COL	; Clear screen with black background
+	lda	#PLAY_COL	; Clear screen with black background
 	sta	COLOR_PORT
 	lda	#147		; Do the actual clear
 	jsr	CHROUT
@@ -826,7 +942,7 @@ splash_screen:
 	sec
 	jsr	SCRMOD
 
-	lda	#WALL_COL		; Set black background
+	lda	#PLAY_COL		; Set black background
 	sta	COLOR_PORT
 
 	lda	#147			; Clear Screen
