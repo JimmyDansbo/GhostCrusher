@@ -275,7 +275,6 @@ main:
 ; USES:		.A, .Y & TMP0
 ; *******************************************************************
 do_getjoy:
-;	jsr	JOY_SCAN
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
 	ldy	#1
@@ -283,30 +282,30 @@ do_getjoy:
 	and	#JOY_DN		; Is Down-key preseed?
 	bne	@check_left	; If not check Left-key
 	sty	BTN_DN		; Store 1 in BTN_DN
-;	jmp	+
+	jmp	+
 @check_left:
-;	lsr	BTN_DN		; Store 0 in BTN_DN
+	lsr	BTN_DN		; Store 0 in BTN_DN
 +	lda	TMP0		; Restore current joystick state
 	and	#JOY_LT		; Is Left-key pressed?
 	bne	@check_right	; If not check Right-key
 	sty	BTN_LT		; Store 1 in BTN_LT
-;	jmp	+
+	jmp	+
 @check_right:
-;	lsr	BTN_LT		; Store 0 in BTN_LT
+	lsr	BTN_LT		; Store 0 in BTN_LT
 +	lda	TMP0		; Restore current joystick state
 	and	#JOY_RT		; Is Right-key pressed?
 	bne	@check_up	; If not check Up-key
 	sty	BTN_RT		; Store 1 in BTN_RT
-;	jmp	+
+	jmp	+
 @check_up:
-;	lsr	BTN_RT		; Store 0 in BTN_RT
+	lsr	BTN_RT		; Store 0 in BTN_RT
 +	lda	TMP0		; Restore current joystick state
 	and	#JOY_UP		; Is UP-key pressed?
 	bne	@end		; If not jump to end
 	sty	BTN_UP		; Store 1 in BTN_UP
 	rts
 @end:
-;	lsr	BTN_UP		; Store 0 in BTN_UP
+	lsr	BTN_UP		; Store 0 in BTN_UP
 	rts
 
 ; *******************************************************************
