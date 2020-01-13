@@ -14,19 +14,32 @@ VERA_ISR	= VERA_BASE+7
 ; *******************************************************************
 ; Initialize VERA with sane values
 ; *******************************************************************
-; USES:		A
+; USES:		.A
 ; *******************************************************************
-!macro vera_init {
+!macro VERA_INIT {
 	lda	#0
 	sta	VERA_CTRL	; No reset, use data0
 	lda	#$10
 	sta	VERA_ADDR_BANK	; Increment by 1
 }
 
-!macro vera_goxy .xcord, .ycord {
+; *******************************************************************
+; Set cursor to location
+; *******************************************************************
+; USES:		.A
+; *******************************************************************
+!macro VERA_GO_XY .xcord, .ycord {
 	lda	.ycord
 	sta	VERA_ADDR_HIGH
 	lda	.xcord
+	asl
+	sta	VERA_ADDR_LOW
+}
+
+!macro VERA_GO_XY .xcord, .ycord, .abs {
+	lda	#.ycord
+	sta	VERA_ADDR_HIGH
+	lda	#.xcord
 	asl
 	sta	VERA_ADDR_LOW
 }

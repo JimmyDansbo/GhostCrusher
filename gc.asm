@@ -47,7 +47,7 @@ init_vars:
 	lda	#60
 	sta	JIFFIES
 
-	lda	#4
+	lda	#5
 	sta	PLAYER_DELAY
 	sta	PLAYER_SPEED
 
@@ -72,15 +72,126 @@ init_vars:
 ; *******************************************************************
 ; Find a random number between .min and .max
 ; *******************************************************************
-; USES:		A
+; USES:		.A
 ; *******************************************************************
-!macro rand .min, .max {
+!macro RAND .min, .max {
 -	jsr	randomize
 	cmp	#(.max-.min)
 	bcs	-
 	clc
 	adc	#.min
 }
+
+; *******************************************************************
+; Calculate new coordinates according to the direction stored in .A
+; *******************************************************************
+!macro NEW_CORD .xcord, .ycord {
+	cmp	#DIR_DOWN
+	bne	.is_left
+	inc	.ycord
+	jmp	.endm
+.is_left:
+	cmp	#DIR_LEFT
+	bne	.is_right
+	dec	.xcord
+	jmp	.endm
+.is_right:
+	cmp	#DIR_RIGHT
+	bne	.is_up
+	inc	.xcord
+	jmp	.endm
+.is_up:
+	dec	.ycord
+.endm:
+}
+
+; *******************************************************************
+; Write .num to screen using VERA, .num must be BCD encoded
+; *******************************************************************
+; USES:		.A
+; *******************************************************************
+!macro WRITE_BCD_NUM .num {
+	lda	.num
+	lsr
+	lsr
+	lsr
+	lsr
+	ora	#$30
+	sta	VERA_DATA0
+	lda	.num
+	and	#$0F
+	ora	#$30
+	inc	VERA_ADDR_LOW
+	inc	VERA_ADDR_LOW
+	sta	VERA_DATA0
+}
+
+; *******************************************************************
+; Add the total number of ghosts and write it to screen
+; *******************************************************************
+; USES:		.X, .Y
+; RETURNS:	.A
+; *******************************************************************
+!macro SUM_GHOSTS {
+	sed			; Turn BCD mode on
+	lda	NUMGHOSTS	; Add up all the ghosts
+	clc
+	adc	NUMPORTALS
+	adc	NUMPGHOSTS
+	adc	NUMDGHOSTS
+	cld			; Turn BCD mode off
+	tay			; Store the total number of ghosts
+	lsr			; Move high nibble to low nibble
+	lsr
+	lsr
+	lsr
+	ora	#$30		; Convert to petscii code
+	tax			; Save result in .X
+	lda	#0		; Coordinates 35x0
+	sta	VERA_ADDR_HIGH
+	lda	#35*2
+	sta	VERA_ADDR_LOW
+	stx	VERA_DATA0	; Write petscii digit
+	inc	VERA_ADDR_LOW	; Coordinate 36x0
+	inc	VERA_ADDR_LOW
+	tya			; Restore total number of ghosts
+	and	#$0F		; Remove top nibble
+	ora	#$30		; Convert to petscii code
+	sta	VERA_DATA0	; Write petscii digit
+}
+
+; *******************************************************************
+; Add points to the totabl number of points
+; *******************************************************************
+; USES:		.A
+; *******************************************************************
+!macro ADD_POINTS .points {
+	sed
+	lda	POINTS+2
+	clc
+	adc	#.points
+	sta	POINTS+2
+	bcc	.end
+	lda	POINTS+1
+	adc	#0
+	sta	POINTS+1
+	bcc	.end
+	lda	POINTS
+	adc	#0
+	sta	POINTS
+.end:
+	cld
+
+	+VERA_GO_XY 8, 1, 1
+	+WRITE_BCD_NUM POINTS
+	inc	VERA_ADDR_LOW
+	inc	VERA_ADDR_LOW
+	+WRITE_BCD_NUM POINTS+1
+	inc	VERA_ADDR_LOW
+	inc	VERA_ADDR_LOW
+	+WRITE_BCD_NUM POINTS+2
+}
+
 
 !src "x16.inc"
 !src "text.inc"
@@ -90,22 +201,28 @@ init_vars:
 ; Starting point of program
 ; *******************************************************************
 main:
+	; With this seed, a dimensional ghost can be killed.
+;	lda	#$B6
+;	sta	RANDSEED
+;	lda	#$74
+;	sta	RANDSEED+1
+	; -------------------------------------
+
 	jsr	init_vars
 	jsr	splash_screen
 
-	+vera_init
-	+save_int_vector
-	+install_int_handler
+	+VERA_INIT
+	+SAVE_INT_VECTOR
+	+INSTALL_INT_HANDLER handle_irq
 
 	; Wait for user to start game, use the time to
 	; to do random numbers
-.start_wait:
+@start_wait:
 	jsr	randomize
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
 	and	#NES_STA
-	beq	.start_wait
-do_game:
+	beq	@start_wait
 
 	ldx	#0		; If there is 0 in RANDSEED
 	cpx	RANDSEED	; We save RANDNUM in RANDSEED
@@ -119,7 +236,7 @@ do_game:
 	ldx	RANDSEED+1
 	stx	RANDNUM+1
 
-	lda	#0		; Go to 40x30
+	lda	#0		; Go to 40x30 mode
 	sec
 	jsr	SCRMOD
 
@@ -136,19 +253,20 @@ do_game:
 	; each time it is set, it will call the do_game function and
 	; reset the IRQ_TRIG variable. This means that the do_game
 	; function will be called 60 times a second
-game_loop:
+@game_loop:
 	lda	IRQ_TRIG	; Load IRQ_TRIG
-	beq	game_loop
+	beq	@game_loop
 	; VSYNC IRQ has occurred, handle
-	lsr	IRQ_TRIG	; Reset IRQ_TRIG
 
-	jsr	do_getjoy
 	jsr	do_clock
 	jsr	do_player
+	jsr	do_getjoy
 
-	jmp	game_loop
+	lsr	IRQ_TRIG	; Reset IRQ_TRIG
 
-.main_end:			; So far, we never get here
+	jmp	@game_loop
+
+@main_end:			; So far, we never get here
 	rts
 
 ; *******************************************************************
@@ -157,60 +275,39 @@ game_loop:
 ; USES:		.A, .Y & TMP0
 ; *******************************************************************
 do_getjoy:
-	jsr	JOY_SCAN
+;	jsr	JOY_SCAN
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
 	ldy	#1
 	sta	TMP0		; Save current joystick state
-	and	#JOY_DN
-	bne	.check_lt
-	sty	BTN_DN
-	jmp	+
-.check_lt:
-	lsr	BTN_DN
-+	lda	TMP0
-	and	#JOY_LT
-	bne	.check_rt
-	sty	BTN_LT
-	jmp	+
-.check_rt:
-	lsr	BTN_LT
-+	lda	TMP0
-	and	#JOY_RT
-	bne	.check_up
-	sty	BTN_RT
-	jmp	+
-.check_up:
-	lsr	BTN_RT
-+	lda	TMP0
-	and	#JOY_UP
-	bne	.dgj_end
-	sty	BTN_UP
+	and	#JOY_DN		; Is Down-key preseed?
+	bne	@check_left	; If not check Left-key
+	sty	BTN_DN		; Store 1 in BTN_DN
+;	jmp	+
+@check_left:
+;	lsr	BTN_DN		; Store 0 in BTN_DN
++	lda	TMP0		; Restore current joystick state
+	and	#JOY_LT		; Is Left-key pressed?
+	bne	@check_right	; If not check Right-key
+	sty	BTN_LT		; Store 1 in BTN_LT
+;	jmp	+
+@check_right:
+;	lsr	BTN_LT		; Store 0 in BTN_LT
++	lda	TMP0		; Restore current joystick state
+	and	#JOY_RT		; Is Right-key pressed?
+	bne	@check_up	; If not check Up-key
+	sty	BTN_RT		; Store 1 in BTN_RT
+;	jmp	+
+@check_up:
+;	lsr	BTN_RT		; Store 0 in BTN_RT
++	lda	TMP0		; Restore current joystick state
+	and	#JOY_UP		; Is UP-key pressed?
+	bne	@end		; If not jump to end
+	sty	BTN_UP		; Store 1 in BTN_UP
 	rts
-.dgj_end
-	lsr	BTN_UP
+@end:
+;	lsr	BTN_UP		; Store 0 in BTN_UP
 	rts
-
-; *******************************************************************
-; Calculate new coordinates according to the direction stored in .A
-; *******************************************************************
-!macro newcord .xcord, .ycord {
-	cmp	#DIR_DOWN
-	bne	+
-	inc	.ycord
-	jmp	.endm
-+	cmp	#DIR_LEFT
-	bne	+
-	dec	.xcord
-	jmp	.endm
-+	cmp	#DIR_RIGHT
-	bne	+
-	inc	.xcord
-	jmp	.endm
-+	dec	.ycord
-.endm:
-}
-
 
 ; *******************************************************************
 ; Function check if it is possible to move in the direction the user
@@ -229,7 +326,7 @@ can_move:
 	sta	@prev_field	; Hold previous field
 -	lda	@dir
 
-	+newcord @cord_x, @cord_y
+	+NEW_CORD @cord_x, @cord_y
 
 	lda	@cord_y		; Write Y to VERA
 	sta	VERA_ADDR_HIGH
@@ -359,8 +456,8 @@ do_move:
 	ldx	PLAYER_Y
 	stx	@cord_y
 
-	+newcord @cord_x, @cord_y
-	+vera_goxy @cord_x, @cord_y
+	+NEW_CORD @cord_x, @cord_y
+	+VERA_GO_XY @cord_x, @cord_y
 	inc	VERA_ADDR_LOW	; We want the color
 	lda	VERA_DATA0	; Save what was where player moves to
 	sta	@prev_field
@@ -372,7 +469,7 @@ do_move:
 	lda	#PLAY_COL
 	sta	VERA_DATA0
 
-	+vera_goxy PLAYER_X, PLAYER_Y
+	+VERA_GO_XY PLAYER_X, PLAYER_Y
 	lda	#' '		; Draw a space where player was
 	sta	VERA_DATA0
 	inc	VERA_ADDR_LOW
@@ -397,10 +494,10 @@ do_move:
 @move_wall:
 	; Handle moving of walls.
 	lda	@dir
-	+newcord @cord_x, @cord_y
-	+vera_goxy @cord_x, @cord_y
+	+NEW_CORD @cord_x, @cord_y
+	+VERA_GO_XY @cord_x, @cord_y
 	lda	VERA_DATA0
-	sta	@prev_field
+	sta	@prev_field	; Save what is on current position
 	inc	VERA_ADDR_LOW
 	lda	VERA_DATA0
 	cmp	#GHOST_COL	; Have we squashed a ghost
@@ -425,54 +522,41 @@ do_move:
 
 	rts			; we never get here
 
+
 ; *******************************************************************
 ; *******************************************************************
 ghost_killed:
 @prev_field = TMP3
-	lda	@prev_field
-	cmp	#GHOST
-	bne	+
-	dec	NUMGHOSTS
+	lda	@prev_field	; Load the ghost that was 'killed'
+	cmp	#GHOST		; is it a normal ghost?
+	beq	+		; if not check next
+	jmp	@is_portal
++	dec	NUMGHOSTS	; Remove 1 normal ghost
+	+ADD_POINTS $15		; Normal ghost gives 15 points
 	jmp	@addit
-+	cmp	#PORTAL
-	bne	+
-	dec	NUMPORTALS
+@is_portal:
+	cmp	#PORTAL		; is it a portal?
+	beq	+
+	jmp	@is_pghost	; if not check next
++	dec	NUMPORTALS	; Remove 1 portal
+	+ADD_POINTS $10		; Portal gives 10 points (it does not move)
 	jmp	@addit
-+	cmp	#PGHOST
-	bne	+
-	dec	NUMPGHOSTS
+@is_pghost:
+	cmp	#PGHOST		; is it a poltergeist?
+	beq	+
+	jmp	@is_dghost	; if not check next
++	dec	NUMPGHOSTS	; Remove 1 poltergeist
+	+ADD_POINTS $20		; Poltergesit give 20 points
 	jmp	@addit
-+	cmp	#DGHOST
-	bne	@addit
-	dec	NUMDGHOSTS
-@addit:
-	sed
-	lda	NUMGHOSTS
-	clc
-	adc	NUMPORTALS
-	adc	NUMPGHOSTS
-	adc	NUMDGHOSTS
-	cld
+@is_dghost:			; then it must be a dimentional ghost
+	dec	NUMDGHOSTS	; Remove 1 dimentional ghost
+	+ADD_POINTS $30		; Dimentional ghosts gives 30 points
 
-	sta	TMP0
-	lsr
-	lsr
-	lsr
-	lsr
-	ora	#$30
-	tax
-	lda	#0
-	sta	VERA_ADDR_HIGH
-	lda	#35*2
-	sta	VERA_ADDR_LOW
-	stx	VERA_DATA0
-	inc	VERA_ADDR_LOW
-	inc	VERA_ADDR_LOW
-	lda	TMP0
-	and	#$0F
-	ora	#$30
-	sta	VERA_DATA0
+@addit:
+	+SUM_GHOSTS
+
 	rts
+
 ; *******************************************************************
 ; *******************************************************************
 player_died:
@@ -483,21 +567,21 @@ player_died:
 ; *******************************************************************
 do_player:
 	dec	PLAYER_DELAY
-	beq	.do_player
+	beq	@do_move
 	rts
-.do_player:
+@do_move:
 	lda	PLAYER_SPEED
 	sta	PLAYER_DELAY
 
 	lda	PLAYER_X	; Save current coordinates to do
-	sta	TMP0		; claculations on them ?
+	sta	TMP0		; calculations on them ?
 	lda	PLAYER_Y
 	sta	TMP1
 
 	lda	BTN_DN
 	beq	.btn_lt
 	; Handle down button
-	lsr	BTN_DN		; Reset BTN_DN back to 0
+	lsr	BTN_DN
 	lda	#DIR_DOWN
 	jsr	can_move
 	bne	.dp_end
@@ -508,7 +592,7 @@ do_player:
 	lda	BTN_LT
 	beq	.btn_rt
 	; Handle left button
-	lsr	BTN_LT		; Reset BTN_LT back to 0
+	lsr	BTN_LT
 	lda	#DIR_LEFT
 	jsr	can_move
 	bne	.dp_end
@@ -519,7 +603,7 @@ do_player:
 	lda	BTN_RT
 	beq	.btn_up
 	; Handle right button
-	lsr	BTN_RT		; Reset BTN_RT back to 0
+	lsr	BTN_RT
 	lda	#DIR_RIGHT
 	jsr	can_move
 	bne	.dp_end
@@ -530,7 +614,7 @@ do_player:
 	lda	BTN_UP
 	beq	.dp_end
 	; Handle up button
-	lsr	BTN_UP		; Reset BTN_UP back to 0
+	lsr	BTN_UP
 	lda	#DIR_UP
 	jsr	can_move
 	bne	.dp_end
@@ -621,8 +705,11 @@ do_clock:
 ; *******************************************************************
 place_player:
 	jsr	find_empty	; Find an empty field
-	sty	PLAYER_Y	; Save X and Y coordinates
-	stx	PLAYER_X
+	lda	VERA_ADDR_HIGH	; Save Y coordinate
+	sta	PLAYER_Y
+	lda	VERA_ADDR_LOW	; Save X coordinate
+	lsr
+	sta	PLAYER_X
 	lda	#PLAYER		; Draw the player char
 	sta	VERA_DATA0
 	inc	VERA_ADDR_LOW	; Set the correct color
@@ -634,16 +721,12 @@ place_player:
 ; Find an empty place on the playing field and set VERA address
 ; to point at it: This function assumes that VERA increment is 0
 ; *******************************************************************
-; USES:		A
-; *******************************************************************
-; RETURNS:	X and Y as the coordinates found
+; USES:		.A
 ; *******************************************************************
 find_empty:
-	+rand	3, 29		; Find number between 3 and 29
+	+RAND	3, 29		; Find number between 3 and 29
 	sta	VERA_ADDR_HIGH	; Set it as Y coordinate
-	tay			; Save it in Y register
-	+rand	1, 39		; Find number between 1 and 39
-	tax			; Save it in X register
+	+RAND	1, 39		; Find number between 1 and 39
 	asl			; Multiply by 2
 	sta	VERA_ADDR_LOW	; Set it as X coordinate
 	lda	VERA_DATA0	; Read character at coordinate
@@ -753,11 +836,11 @@ place_walls:
 ; USES:		A
 ; *******************************************************************
 place_swalls:
-	+rand 2, 37
+	+RAND 2, 37
 	asl				; Multiply by 2 for X coord
 	sta	VERA_ADDR_LOW
 
-	+rand 4, 27
+	+RAND 4, 27
 	sta	VERA_ADDR_HIGH
 
 	lda	#SWALL			; Set the SWALL character
@@ -780,7 +863,7 @@ handle_irq:
 	beq	.vsync_end		; if not, end
 	sta	IRQ_TRIG
 .vsync_end:
-	jmp	(old_irq_handler)	; Continue to original
+	jmp	(Old_irq_handler)	; Continue to original
 
 ; *******************************************************************
 ; Clear the playing field
@@ -821,14 +904,18 @@ draw_border:
 	lda	#147		; Do the actual clear
 	jsr	CHROUT
 
-	+gotoxy	0, 0
+	+GOTO_XY 0, 0
 	ldx	#<.top_line1
 	ldy	#>.top_line1
 	jsr	print_str
-	+gotoxy	0, 1
+	+GOTO_XY 0, 1
 	ldx	#<.top_line2
 	ldy	#>.top_line2
 	jsr	print_str
+
+	lda	#$00
+	sta	VERA_ADDR_BANK	; Set increment to 0
+	+SUM_GHOSTS
 
 	lda	#$10
 	sta	VERA_ADDR_BANK	; Set increment to 1
@@ -948,91 +1035,91 @@ splash_screen:
 	lda	#147			; Clear Screen
 	jsr	CHROUT
 
-	+gotoxy 2, 10
+	+GOTO_XY 2, 10
 	ldx	#<.gc1
 	ldy	#>.gc1
 	jsr	print_str
-	+gotoxy 2, 11
+	+GOTO_XY 2, 11
 	ldx	#<.gc2
 	ldy	#>.gc2
 	jsr	print_str
-	+gotoxy 2, 12
+	+GOTO_XY 2, 12
 	ldx	#<.gc3
 	ldy	#>.gc3
 	jsr	print_str
-	+gotoxy 2, 13
+	+GOTO_XY 2, 13
 	ldx	#<.gc4
 	ldy	#>.gc4
 	jsr	print_str
-	+gotoxy	2, 14
+	+GOTO_XY 2, 14
 	ldx	#<.gc5
 	ldy	#>.gc5
 	jsr	print_str
-	+gotoxy 41-((.mail-.name)/2), 18
+	+GOTO_XY 41-((.mail-.name)/2), 18
 	ldx	#<.name
 	ldy	#>.name
 	jsr	print_str
-	+gotoxy	41-((.forcx16-.mail)/2), 20
+	+GOTO_XY 41-((.forcx16-.mail)/2), 20
 	ldx	#<.mail
 	ldy	#>.mail
 	jsr	print_str
-	+gotoxy	41-((.pstart-.forcx16)/2), 27
+	+GOTO_XY 41-((.pstart-.forcx16)/2), 27
 	ldx	#<.forcx16
 	ldy	#>.forcx16
 	jsr	print_str
-	+gotoxy 41-((.player_text-.pstart)/2), 36
+	+GOTO_XY 41-((.player_text-.pstart)/2), 36
 	ldx	#<.pstart
 	ldy	#>.pstart
 	jsr	print_str
-	+gotoxy	39, 24
+	+GOTO_XY 39, 24
 	ldx	#<.xl1
 	ldy	#>.xl1
 	jsr	print_str
-	+gotoxy 40, 25
+	+GOTO_XY 40, 25
 	ldx	#<.xl2
 	ldy	#>.xl2
 	jsr	print_str
-	+gotoxy 41, 26
+	+GOTO_XY 41, 26
 	ldx	#<.xl3
 	ldy	#>.xl3
 	jsr	print_str
-	+gotoxy 41, 28
+	+GOTO_XY 41, 28
 	ldx	#<.xl5
 	ldy	#>.xl5
 	jsr	print_str
-	+gotoxy 40, 29
+	+GOTO_XY 40, 29
 	ldx	#<.xl6
 	ldy	#>.xl6
 	jsr	print_str
-	+gotoxy 39, 30
+	+GOTO_XY 39, 30
 	ldx	#<.xl7
 	ldy	#>.xl7
 	jsr	print_str
-	+gotoxy 35, 40
+	+GOTO_XY 35, 40
 	ldx	#<.player_text
 	ldy	#>.player_text
 	jsr	print_str
-	+gotoxy 35, 42
+	+GOTO_XY 35, 42
 	ldx	#<.portal_text
 	ldy	#>.portal_text
 	jsr	print_str
-	+gotoxy 35, 44
+	+GOTO_XY 35, 44
 	ldx	#<.ghost_text
 	ldy	#>.ghost_text
 	jsr	print_str
-	+gotoxy 35, 46
+	+GOTO_XY 35, 46
 	ldx	#<.pghost_text
 	ldy	#>.pghost_text
 	jsr	print_str
-	+gotoxy 35, 48
+	+GOTO_XY 35, 48
 	ldx	#<.dghost_text
 	ldy	#>.dghost_text
 	jsr	print_str
-	+gotoxy 35, 50
+	+GOTO_XY 35, 50
 	ldx	#<.wall_text
 	ldy	#>.wall_text
 	jsr	print_str
-	+gotoxy 35, 52
+	+GOTO_XY 35, 52
 	ldx	#<.swall_text
 	ldy	#>.swall_text
 	jsr	print_str

@@ -42,11 +42,11 @@ TMP9		= $7F
 ; *******************************************************************
 ; USES:		A
 ; *******************************************************************
-!macro save_int_vector {
+!macro SAVE_INT_VECTOR {
 	lda	IRQ_VEC
-	sta	old_irq_handler
+	sta	Old_irq_handler
 	lda	IRQ_VEC+1
-	sta	old_irq_handler+1
+	sta	Old_irq_handler+1
 }
 
 ; *******************************************************************
@@ -54,13 +54,13 @@ TMP9		= $7F
 ; *******************************************************************
 ; USES:		A
 ; *******************************************************************
-!macro install_int_handler {
+!macro INSTALL_INT_HANDLER .handler {
 	sei			; Disable interrupts
 	lda	#1		; Tell VERA that we want interrupts
 	sta	VERA_IEN	; on each VSYNC
-	lda	#<handle_irq	; Write address of local interrupt
+	lda	#<.handler	; Write address of local interrupt
 	sta	IRQ_VEC		; handler to the interrupt
-	lda	#>handle_irq	; vector address ($0314)
+	lda	#>.handler	; vector address ($0314)
 	sta	IRQ_VEC+1
 	cli			; Enable interrupts
 }
@@ -71,7 +71,7 @@ TMP9		= $7F
 ; *******************************************************************
 ; USES:		A
 ; *******************************************************************
-!macro check_irq .handler {
+!macro CHECK_IRQ .handler {
 	lda	IRQ_TRIG
 	beq	.done
 	; VSYNC IRQ has occurred, handle
@@ -87,7 +87,7 @@ TMP9		= $7F
 ; to the original interrupt hanlder upon completion. This label
 ; will be updated to point to the original interrupt handler.
 ; *******************************************************************
-old_irq_handler:
+Old_irq_handler:
 	!word	$FFFF
 
 X16_DONE:
