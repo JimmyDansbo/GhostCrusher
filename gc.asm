@@ -23,6 +23,7 @@ PLAYER_X	=	$12
 PLAYER_Y	=	$13
 RANDSEED	=	$18		; 2 bytes
 PLAYER_SPEED	=	$20
+JOY_DELAY	=	$21
 
 DIR_DOWN	= 1
 DIR_LEFT	= 2
@@ -47,7 +48,10 @@ init_vars:
 	lda	#60
 	sta	JIFFIES
 
-	lda	#5
+	lda	#10
+	sta	JOY_DELAY
+
+	lda	#3
 	sta	PLAYER_DELAY
 	sta	PLAYER_SPEED
 
@@ -277,35 +281,35 @@ main:
 do_getjoy:
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
-	ldy	#1
+	beq	+
+	; When a key is pressed and held, do a delay before allowing
+	; more than 1st keypress through... like keyboard buffer.
+
++	ldy	#1
+
 	sta	TMP0		; Save current joystick state
 	and	#JOY_DN		; Is Down-key preseed?
 	bne	@check_left	; If not check Left-key
 	sty	BTN_DN		; Store 1 in BTN_DN
-	jmp	+
+	rts
 @check_left:
-	lsr	BTN_DN		; Store 0 in BTN_DN
-+	lda	TMP0		; Restore current joystick state
+	lda	TMP0		; Restore current joystick state
 	and	#JOY_LT		; Is Left-key pressed?
 	bne	@check_right	; If not check Right-key
 	sty	BTN_LT		; Store 1 in BTN_LT
-	jmp	+
+	rts
 @check_right:
-	lsr	BTN_LT		; Store 0 in BTN_LT
-+	lda	TMP0		; Restore current joystick state
+	lda	TMP0		; Restore current joystick state
 	and	#JOY_RT		; Is Right-key pressed?
 	bne	@check_up	; If not check Up-key
 	sty	BTN_RT		; Store 1 in BTN_RT
-	jmp	+
+	rts
 @check_up:
-	lsr	BTN_RT		; Store 0 in BTN_RT
-+	lda	TMP0		; Restore current joystick state
+	lda	TMP0		; Restore current joystick state
 	and	#JOY_UP		; Is UP-key pressed?
 	bne	@end		; If not jump to end
 	sty	BTN_UP		; Store 1 in BTN_UP
-	rts
 @end:
-	lsr	BTN_UP		; Store 0 in BTN_UP
 	rts
 
 ; *******************************************************************
