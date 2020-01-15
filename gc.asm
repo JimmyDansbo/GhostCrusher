@@ -4,6 +4,9 @@
 !byte $0C,$08,$0A,$00,$9E,' ','2','0','6','4',$00,$00,$00
 *=$0810
 
+; *******************************************************************
+; Definitions of variables in Zero Page
+; *******************************************************************
 RANDNUM		=	$00		; 2 bytes for RANDOM seed
 IRQ_TRIG	=	$02		; ZP address to show if IRQ triggered
 LEVEL		=	$03		; ZP address to store current level
@@ -22,57 +25,16 @@ PLAYER_DELAY	=	$11
 PLAYER_X	=	$12
 PLAYER_Y	=	$13
 RANDSEED	=	$18		; 2 bytes
-PLAYER_SPEED	=	$20
-JOY_DELAY	=	$21
-LAST_DIR	=	$22
+PLAYER_SPEED	=	$1A
+JOY_DELAY	=	$1B
+LAST_DIR	=	$1C
+NUMWALLS	=	$1D
+NUMSWALLS	=	$1E
 
 DIR_DOWN	= 1
 DIR_LEFT	= 2
 DIR_RIGHT	= 3
 DIR_UP		= 4
-
-	jmp	main
-
-; *******************************************************************
-; Initialize ZP variables with correct values for start
-; *******************************************************************
-; USES:		A
-; *******************************************************************
-init_vars:
-	lda	#1		; LEVEL = 1
-	sta	LEVEL
-	sta	RANDNUM
-	lda	#5		; LIVES = 5
-	sta	LIVES
-	sta	RANDNUM+1
-
-	lda	#60
-	sta	JIFFIES
-
-	lda	#10
-	sta	JOY_DELAY
-
-	lda	#5
-	sta	PLAYER_DELAY
-	sta	PLAYER_SPEED
-
-	lda	#3
-	sta	NUMGHOSTS	; NUMGHOSTS = 2
-	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
-	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
-	sta	NUMPORTALS	; NUMPORTALS = 0
-
-;	lda	#2
-;	sta	NUMGHOSTS	; NUMGHOSTS = 2
-	lda	#0
-	sta	IRQ_TRIG	; IRQ_TRIG = 0
-;	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
-;	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
-;	sta	NUMPORTALS	; NUMPORTALS = 0
-	sta	POINTS		; POINTS = 000000 (BCD)
-	sta	POINTS+1
-	sta	POINTS+2
-	rts
 
 ; *******************************************************************
 ; Find a random number between .min and .max
@@ -89,6 +51,8 @@ init_vars:
 
 ; *******************************************************************
 ; Calculate new coordinates according to the direction stored in .A
+; *******************************************************************
+; INPUTS:	.A = direction
 ; *******************************************************************
 !macro NEW_CORD .xcord, .ycord {
 	cmp	#DIR_DOWN
@@ -117,16 +81,16 @@ init_vars:
 ; *******************************************************************
 !macro WRITE_BCD_NUM .num {
 	lda	.num
+	lsr			; Move high nibble to low
 	lsr
 	lsr
 	lsr
-	lsr
-	ora	#$30
+	ora	#$30		; Convert to PETSCII
 	sta	VERA_DATA0
 	lda	.num
-	and	#$0F
-	ora	#$30
-	inc	VERA_ADDR_LOW
+	and	#$0F		; Remove high nibble
+	ora	#$30		; Convert to PETSCII
+	inc	VERA_ADDR_LOW	; Move to next char on screen
 	inc	VERA_ADDR_LOW
 	sta	VERA_DATA0
 }
@@ -135,7 +99,7 @@ init_vars:
 ; Add the total number of ghosts and write it to screen
 ; *******************************************************************
 ; USES:		.X, .Y
-; RETURNS:	.A
+; RETURNS:	.Y = Total number of ghosts (BCD encoded).
 ; *******************************************************************
 !macro SUM_GHOSTS {
 	sed			; Turn BCD mode on
@@ -172,46 +136,107 @@ init_vars:
 ; *******************************************************************
 !macro ADD_POINTS .points {
 	sed
-	lda	POINTS+2
-	clc
-	adc	#.points
-	sta	POINTS+2
-	bcc	.end
-	lda	POINTS+1
-	adc	#0
-	sta	POINTS+1
-	bcc	.end
-	lda	POINTS
-	adc	#0
-	sta	POINTS
+	lda	POINTS+2	; Load low-byte of POINTS
+	clc			; Ensure Carry is clear
+	adc	#.points	; Add .points
+	sta	POINTS+2	; Store low-byte of POINTS
+	bcc	.end		; If carry is clear, we can end
+	lda	POINTS+1	; Load mid-byte of POINTS
+	adc	#0		; Add zero to actually add carry
+	sta	POINTS+1	; Store mid-byte of POINTS
+	bcc	.end		; If carry is clear, we can end
+	lda	POINTS		; Load high-byte of POINTS
+	adc	#0		; Add zero to actually add carry
+	sta	POINTS		; Store high-byte of POINTS
 .end:
 	cld
 
+	; Move cursor to 8,1. 3rd option tells macro that we are using
+	; immediate values instead of variables
 	+VERA_GO_XY 8, 1, 1
-	+WRITE_BCD_NUM POINTS
+	+WRITE_BCD_NUM POINTS	; Write high-byte of POINTS to screen
 	inc	VERA_ADDR_LOW
 	inc	VERA_ADDR_LOW
-	+WRITE_BCD_NUM POINTS+1
+	+WRITE_BCD_NUM POINTS+1	; Write mid-byte of POINTS to screen
 	inc	VERA_ADDR_LOW
 	inc	VERA_ADDR_LOW
-	+WRITE_BCD_NUM POINTS+2
+	+WRITE_BCD_NUM POINTS+2	; Write low-byte of POINTS to screen
 }
 
-
+; *******************************************************************
+; Includes
+; *******************************************************************
 !src "x16.inc"
 !src "text.inc"
 !src "vera.inc"
+
+	jmp	main
+
+; *******************************************************************
+; Initialize ZP variables with correct values for start
+; *******************************************************************
+; USES:		A
+; *******************************************************************
+init_vars:
+	lda	#1		; LEVEL = 1
+	sta	LEVEL
+	sta	RANDNUM
+	lda	#5		; LIVES = 5
+	sta	LIVES
+	sta	RANDNUM+1
+
+	lda	#60
+	sta	JIFFIES
+
+	lda	#10
+	sta	JOY_DELAY
+
+	lda	#5
+	sta	PLAYER_DELAY
+	sta	PLAYER_SPEED
+
+	lda	#3
+	sta	NUMGHOSTS	; NUMGHOSTS = 2
+	sta	NUMPORTALS	; NUMPORTALS = 0
+	lda	#0
+	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
+	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
+
+;	lda	#2
+;	sta	NUMGHOSTS	; NUMGHOSTS = 2
+	lda	#0
+	sta	IRQ_TRIG	; IRQ_TRIG = 0
+;	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
+;	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
+;	sta	NUMPORTALS	; NUMPORTALS = 0
+	sta	POINTS		; POINTS = 000000 (BCD)
+	sta	POINTS+1
+	sta	POINTS+2
+	rts
+
+; *******************************************************************
+; Level definitions
+; *******************************************************************
+Levels			; Level structure, total size 8 bytes
+	!word	$0000	; Random seed
+	!byte	4	; Number of static walls
+	!byte	85	; Number of walls
+	!byte	2	; Number of ghosts
+	!byte	0	; Number of portals
+	!byte	0	; Number of poltergeists
+	!byte	0	; Number of dimentional ghosts
+	!word	$0000	; Random seed
+	!byte	4	; Number of static walls
+	!byte	85	; Number of walls
+	!byte	3	; Number of ghosts
+	!byte	0	; Number of portals
+	!byte	0	; Number of poltergeists
+	!byte	0	; Number of dimentional ghosts
 
 ; *******************************************************************
 ; Starting point of program
 ; *******************************************************************
 main:
-	; With this seed, a dimensional ghost can be killed.
-;	lda	#$B6
-;	sta	RANDSEED
-;	lda	#$74
-;	sta	RANDSEED+1
-	; -------------------------------------
 
 	jsr	init_vars
 	jsr	splash_screen
@@ -219,6 +244,9 @@ main:
 	+VERA_INIT
 	+SAVE_INT_VECTOR
 	+INSTALL_INT_HANDLER handle_irq
+
+	ldy	#2
+	jsr	load_level
 
 	; Wait for user to start game, use the time to
 	; to do random numbers
@@ -247,11 +275,9 @@ main:
 	jsr	SCRMOD
 
 	jsr	draw_border
-	ldy	#4		; Place 4 static walls
-	jsr	place_swalls
-	lda	#85		; Place 85*5 walls
-	jsr	place_walls
 
+	jsr	place_swalls	; Place static walls
+	jsr	place_walls	; Place walls
 	jsr	place_ghosts	; Place ghosts according to ZP variables
 	jsr	place_player
 
@@ -273,6 +299,62 @@ main:
 	jmp	@game_loop
 
 @main_end:			; So far, we never get here
+	rts
+
+; *******************************************************************
+; Load level information into global zeropage variables
+; *******************************************************************
+; INPUTS:	.Y level to load
+; USES:		.A & .Y
+; OUTPUTS:	LEVEL, RANDSEED, NUMSWALLS, NUMWALLS,
+;		NUMGHOSTS, NUMPORTALS, NUMPGHOSTS & NUMDGHOSTS
+; *******************************************************************
+load_level:
+	sty	LEVEL		; Store level
+	lda	#>Levels	; TMP0 pointer to start of Levels
+	sta	TMP1
+	lda	#<Levels
+	sta	TMP0
+@find_level:
+	dey			; When Y reaches 0, we have found level
+	beq	@do_load
+	clc			; Add 8 to the TMP0 pointer to point to
+	adc	#8		; next level
+	sta	TMP0
+	lda	TMP1
+	adc	#0
+	sta	TMP1
+	jmp	@find_level	; Go back and see if we found right level
+@do_load:
+	lda	(TMP0),y	; Random Seed
+	sta	RANDSEED+0
+	iny
+	lda	(TMP0),y
+	sta	RANDSEED+1
+
+	iny
+	lda	(TMP0),y	; Number of static walls
+	sta	NUMSWALLS
+
+	iny
+	lda	(TMP0),y	; Number of walls / 5
+	sta	NUMWALLS
+
+	iny
+	lda	(TMP0),y	; Number of ghosts
+	sta	NUMGHOSTS
+
+	iny
+	lda	(TMP0),y	; Number of portals
+	sta	NUMPORTALS
+
+	iny
+	lda	(TMP0),y	; Number of poltergeists
+	sta	NUMPGHOSTS
+
+	iny
+	lda	(TMP0),y	; Number of dimentional ghosts
+	sta	NUMDGHOSTS
 	rts
 
 ; *******************************************************************
@@ -493,6 +575,12 @@ can_move:
 
 
 ; *******************************************************************
+; Move player in the direction chosen. This function assumes that it
+; is possible to move in the direction chosen.
+; *******************************************************************
+; INPUTS:	.A containing the direction to move
+;		PLAYER_X & PLAYER_Y current coordinates of player
+; OUTPUTS:	PLAYER_X & PLAYER_Y new coordinates of player
 ; *******************************************************************
 do_move:
 @cord_x = TMP0
@@ -503,7 +591,7 @@ do_move:
 	sta	@dir		; Save direction
 
 	ldx	PLAYER_X	; Save current coordinates to do
-	stx	@cord_x		; claculations on them ?
+	stx	@cord_x		; calculations on them
 	ldx	PLAYER_Y
 	stx	@cord_y
 
@@ -535,21 +623,21 @@ do_move:
 	lda	@prev_field	; Load color of the field that was overwritten
 	cmp	#GHOST_COL	; If it is a ghost, the player dies
 	bne	+		; else
-	jsr	player_died
+	jsr	player_died	; Handle that player died
 	rts
 
 +	cmp	#PLAY_COL	; If it is PLAY_COL, it is an empty field and
 	bne	@move_wall	; We are done.
 	rts
 
-@move_wall:
 	; Handle moving of walls.
+@move_wall:
 	lda	@dir
 	+NEW_CORD @cord_x, @cord_y
 	+VERA_GO_XY @cord_x, @cord_y
 	lda	VERA_DATA0
 	sta	@prev_field	; Save what is on current position
-	inc	VERA_ADDR_LOW
+	inc	VERA_ADDR_LOW	; All ghosts have same color so check the color
 	lda	VERA_DATA0
 	cmp	#GHOST_COL	; Have we squashed a ghost
 	bne	+
@@ -570,11 +658,13 @@ do_move:
 	rts
 
 +	jmp	@move_wall
-
-	rts			; we never get here
-
+; END of do_move function
 
 ; *******************************************************************
+; Handle the "crushing" of a ghost, that means add points and
+; finish level when all ghosts are killed.
+; *******************************************************************
+; USES:		.A, .X & .Y
 ; *******************************************************************
 ghost_killed:
 @prev_field = TMP3
@@ -605,8 +695,11 @@ ghost_killed:
 
 @addit:
 	+SUM_GHOSTS
-
-	rts
+	tya
+	bne	+
+	; Handle that all ghosts are killed
+	!byte $ff
++	rts
 
 ; *******************************************************************
 ; *******************************************************************
@@ -856,10 +949,11 @@ place_ghosts:
 ; *******************************************************************
 ; Place walls randomly on the playing field
 ; *******************************************************************
-; INPUT:	A * 5 wall chars will be written
+; INPUT:	NUMWALLS * 5 wall chars will be written
 ; USES:		TMP0 and TMP1 for counters
 ; *******************************************************************
 place_walls:
+	lda	NUMWALLS
 	sta	TMP0
 	lda	#0
 	sta	VERA_ADDR_BANK		; No Increment
@@ -883,11 +977,12 @@ place_walls:
 ; *******************************************************************
 ; Place a number of Static Wall Chars randomly in the playing field
 ; *******************************************************************
-; INPUTS:	Y = number of Static Walls to place
-; USES:		A
+; INPUTS:	NUMSWALLS = number of Static Walls to place
+; USES:		.A & .Y
 ; *******************************************************************
 place_swalls:
-	+RAND 2, 37
+	ldy	NUMSWALLS
+-	+RAND 2, 37
 	asl				; Multiply by 2 for X coord
 	sta	VERA_ADDR_LOW
 
@@ -899,7 +994,7 @@ place_swalls:
 	lda	#SWALL_COL		; Set the SWALL_COL color
 	sta	VERA_DATA0
 	dey				; While Y > 0
-	bne	place_swalls		; jump back to place wall
+	bne	-			; jump back to place wall
 
 	rts
 
