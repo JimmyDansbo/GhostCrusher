@@ -178,11 +178,9 @@ DIR_UP		= 4
 ; USES:		A
 ; *******************************************************************
 init_vars:
-	lda	#1		; LEVEL = 1
-	sta	LEVEL
-	sta	RANDNUM
 	lda	#5		; LIVES = 5
 	sta	LIVES
+	sta	RANDNUM
 	sta	RANDNUM+1
 
 	lda	#60
@@ -195,20 +193,8 @@ init_vars:
 	sta	PLAYER_DELAY
 	sta	PLAYER_SPEED
 
-	lda	#3
-	sta	NUMGHOSTS	; NUMGHOSTS = 2
-	sta	NUMPORTALS	; NUMPORTALS = 0
-	lda	#0
-	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
-	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
-
-;	lda	#2
-;	sta	NUMGHOSTS	; NUMGHOSTS = 2
 	lda	#0
 	sta	IRQ_TRIG	; IRQ_TRIG = 0
-;	sta	NUMPGHOSTS	; NUMPGHOSTS = 0
-;	sta	NUMDGHOSTS	; NUMDGHOSTS = 0
-;	sta	NUMPORTALS	; NUMPORTALS = 0
 	sta	POINTS		; POINTS = 000000 (BCD)
 	sta	POINTS+1
 	sta	POINTS+2
@@ -218,7 +204,7 @@ init_vars:
 ; Level definitions
 ; *******************************************************************
 Levels			; Level structure, total size 8 bytes
-	!word	$0000	; Random seed
+	!word	$47DE	; Random seed
 	!byte	4	; Number of static walls
 	!byte	85	; Number of walls
 	!byte	2	; Number of ghosts
@@ -245,13 +231,14 @@ main:
 	+SAVE_INT_VECTOR
 	+INSTALL_INT_HANDLER handle_irq
 
-	ldy	#2
+	ldy	#1
 	jsr	load_level
 
 	; Wait for user to start game, use the time to
 	; to do random numbers
 @start_wait:
 	jsr	randomize
+	jsr	JOY_SCAN
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
 
@@ -276,10 +263,13 @@ main:
 
 	jsr	draw_border
 
+;	jsr	clear_field
+
 	jsr	place_swalls	; Place static walls
 	jsr	place_walls	; Place walls
 	jsr	place_ghosts	; Place ghosts according to ZP variables
 	jsr	place_player
+	jsr	write_level	; Write the current level to screen
 
 	; This is the main loop, it will check the IRQ_TRIG variable
 	; each time it is set, it will call the do_game function and
@@ -299,6 +289,17 @@ main:
 	jmp	@game_loop
 
 @main_end:			; So far, we never get here
+	rts
+
+; *******************************************************************
+; Write the current level on screen
+; *******************************************************************
+; INPUTS:	LEVEL
+; USES:		.A
+; *******************************************************************
+write_level:
+	+VERA_GO_XY 22,0,1
+	+WRITE_BCD_NUM LEVEL
 	rts
 
 ; *******************************************************************
