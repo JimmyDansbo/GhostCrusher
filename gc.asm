@@ -24,6 +24,7 @@ PLAYER_Y	=	$13
 RANDSEED	=	$18		; 2 bytes
 PLAYER_SPEED	=	$20
 JOY_DELAY	=	$21
+LAST_DIR	=	$22
 
 DIR_DOWN	= 1
 DIR_LEFT	= 2
@@ -51,7 +52,7 @@ init_vars:
 	lda	#10
 	sta	JOY_DELAY
 
-	lda	#3
+	lda	#5
 	sta	PLAYER_DELAY
 	sta	PLAYER_SPEED
 
@@ -225,6 +226,7 @@ main:
 	jsr	randomize
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
+
 	and	#NES_STA
 	beq	@start_wait
 
@@ -281,34 +283,80 @@ main:
 do_getjoy:
 	lda	#0		; Select first joystick
 	jsr	JOY_GET
-	beq	+
-	; When a key is pressed and held, do a delay before allowing
-	; more than 1st keypress through... like keyboard buffer.
-
-+	ldy	#1
-
 	sta	TMP0		; Save current joystick state
+	cmp	#$FF		; If no key is pressed on joystick
+	bne	@joy_start
+	sta	LAST_DIR	; Make sure to reset LAST_DIR and
+	lda	#10		; JOY_DELAY variables
+	sta	JOY_DELAY
+	jmp	@end
+
+@joy_start:
+	ldy	#1		; .Y is used to store into direction vars
+
+	lda	TMP0		; Restore current joystick state
 	and	#JOY_DN		; Is Down-key preseed?
 	bne	@check_left	; If not check Left-key
-	sty	BTN_DN		; Store 1 in BTN_DN
-	rts
+
+	lda	TMP0		; Restore jystick state
+	cmp	LAST_DIR
+	bne	@mv_dn		; If it is equal to last time (key is held)
+	lda	JOY_DELAY	; See if JOY_DELAY=0
+	beq	@mv_dn		; If it does, we can move
+	dec	JOY_DELAY	; Otherwise decrement JOY_DELAY =
+	jmp	@end		; wait for 10 jiffies
+
+@mv_dn:	sty	BTN_DN		; Store 1 in BTN_DN
+	sta	LAST_DIR	; Save current direction
+	jmp	@end
+
 @check_left:
 	lda	TMP0		; Restore current joystick state
 	and	#JOY_LT		; Is Left-key pressed?
 	bne	@check_right	; If not check Right-key
-	sty	BTN_LT		; Store 1 in BTN_LT
-	rts
+
+	lda	TMP0		; Restore jystick state
+	cmp	LAST_DIR
+	bne	@mv_lt		; If it is equal to last time (key is held)
+	lda	JOY_DELAY	; See if JOY_DELAY=0
+	beq	@mv_lt		; If it does, we can move
+	dec	JOY_DELAY	; Otherwise decrement JOY_DELAY =
+	jmp	@end		; wait for 10 jiffies
+
+@mv_lt:	sty	BTN_LT		; Store 1 in BTN_LT
+	sta	LAST_DIR	; Save current direction
+	jmp	@end
 @check_right:
 	lda	TMP0		; Restore current joystick state
 	and	#JOY_RT		; Is Right-key pressed?
 	bne	@check_up	; If not check Up-key
-	sty	BTN_RT		; Store 1 in BTN_RT
-	rts
+
+	lda	TMP0		; Restore jystick state
+	cmp	LAST_DIR
+	bne	@mv_rt		; If it is equal to last time (key is held)
+	lda	JOY_DELAY	; See if JOY_DELAY=0
+	beq	@mv_rt		; If it does, we can move
+	dec	JOY_DELAY	; Otherwise decrement JOY_DELAY =
+	jmp	@end		; wait for 10 jiffies
+
+@mv_rt:	sty	BTN_RT		; Store 1 in BTN_RT
+	sta	LAST_DIR	; Save current direction
+	jmp	@end
 @check_up:
 	lda	TMP0		; Restore current joystick state
 	and	#JOY_UP		; Is UP-key pressed?
 	bne	@end		; If not jump to end
-	sty	BTN_UP		; Store 1 in BTN_UP
+
+	lda	TMP0		; Restore jystick state
+	cmp	LAST_DIR
+	bne	@mv_up		; If it is equal to last time (key is held)
+	lda	JOY_DELAY	; See if JOY_DELAY=0
+	beq	@mv_up		; If it does, we can move
+	dec	JOY_DELAY	; Otherwise decrement JOY_DELAY =
+	jmp	@end		; wait for 10 jiffies
+
+@mv_up:	sty	BTN_UP		; Store 1 in BTN_UP
+	sta	LAST_DIR	; Save current direction
 @end:
 	rts
 
