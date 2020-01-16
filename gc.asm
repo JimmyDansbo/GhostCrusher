@@ -245,6 +245,41 @@ main:
 	and	#NES_STA
 	beq	@start_wait
 
+	lda	#0		; Go to 40x30 mode
+	sec
+	jsr	SCRMOD
+
+	jsr	draw_border
+	jsr	init_playfield
+
+	; This is the main loop, it will check the IRQ_TRIG variable
+	; each time it is set, it will call the do_game function and
+	; reset the IRQ_TRIG variable. This means that the do_game
+	; function will be called 60 times a second
+@game_loop:
+	lda	IRQ_TRIG	; Load IRQ_TRIG
+	beq	@game_loop
+	; VSYNC IRQ has occurred, handle
+
+	jsr	randomize
+	jsr	do_clock
+	jsr	do_player
+	jsr	do_getjoy
+
+	lsr	IRQ_TRIG	; Reset IRQ_TRIG
+
+	jmp	@game_loop
+
+@main_end:			; So far, we never get here
+	rts
+
+; *******************************************************************
+; Call the functions needed to initialize the entire playing field.
+; *******************************************************************
+; INPUTS:	Global Zero Page variables must be set
+; USES:		.A, .X, Y
+; *******************************************************************
+init_playfield:
 	ldx	#0		; If there is 0 in RANDSEED
 	cpx	RANDSEED	; We save RANDNUM in RANDSEED
 	bne	+		; Otherwise we copy RANDSEED to RANDNUM
@@ -257,38 +292,13 @@ main:
 	ldx	RANDSEED+1
 	stx	RANDNUM+1
 
-	lda	#0		; Go to 40x30 mode
-	sec
-	jsr	SCRMOD
-
-	jsr	draw_border
-
-;	jsr	clear_field
-
+	jsr	clear_field
 	jsr	place_swalls	; Place static walls
 	jsr	place_walls	; Place walls
 	jsr	place_ghosts	; Place ghosts according to ZP variables
 	jsr	place_player
 	jsr	write_level	; Write the current level to screen
-
-	; This is the main loop, it will check the IRQ_TRIG variable
-	; each time it is set, it will call the do_game function and
-	; reset the IRQ_TRIG variable. This means that the do_game
-	; function will be called 60 times a second
-@game_loop:
-	lda	IRQ_TRIG	; Load IRQ_TRIG
-	beq	@game_loop
-	; VSYNC IRQ has occurred, handle
-
-	jsr	do_clock
-	jsr	do_player
-	jsr	do_getjoy
-
-	lsr	IRQ_TRIG	; Reset IRQ_TRIG
-
-	jmp	@game_loop
-
-@main_end:			; So far, we never get here
+	+SUM_GHOSTS
 	rts
 
 ; *******************************************************************
@@ -699,13 +709,16 @@ ghost_killed:
 	tya
 	bne	+
 	; Handle that all ghosts are killed
-	!byte $ff
+	ldy	LEVEL
+	iny
+	jsr	load_level
+	jsr	init_playfield
 +	rts
 
 ; *******************************************************************
 ; *******************************************************************
 player_died:
-	jsr	*
+
 	rts
 
 ; *******************************************************************
@@ -1062,7 +1075,6 @@ draw_border:
 
 	lda	#$00
 	sta	VERA_ADDR_BANK	; Set increment to 0
-	+SUM_GHOSTS
 
 	lda	#$10
 	sta	VERA_ADDR_BANK	; Set increment to 1
