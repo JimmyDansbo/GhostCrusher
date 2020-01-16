@@ -73,7 +73,7 @@ print_str:
 .xl7		!pet	$1C,$12,$A9,"  ",$92,$A9,"   ",$7F,$12,"  ",$7F,$92,$1E,0
 
 .name		!pet	"ghost crusher by jimmy dansbo",0
-.mail		!pet	"(jimmy@dansbo.dk) 2019",0
+.mail		!pet	"(jimmy@dansbo.dk) 2020",0
 .forcx16	!pet	"for commander  ",18," ",146," ",18," ",146,"  16",0
 .pstart		!pet	"press start or enter to play",0
 
