@@ -5,6 +5,14 @@
 *=$0810
 
 ; *******************************************************************
+; Includes
+; *******************************************************************
+!src "x16.inc"
+!src "text.inc"
+!src "vera.inc"
+
+
+; *******************************************************************
 ; Definitions of variables in Zero Page
 ; *******************************************************************
 RANDNUM		=	$22		; 2 bytes for RANDOM seed
@@ -36,7 +44,7 @@ PGHOSTS_DELAY	=	GHOSTS_SPEED+1
 PGHOSTS_SPEED	=	PGHOSTS_DELAY+1
 DGHOSTS_DELAY	=	PGHOSTS_SPEED+1
 DGHOSTS_SPEED	=	DGHOSTS_DELAY+1
-
+PORTAL_DELAY	=	DGHOSTS_SPEED+1
 
 DIR_DOWN	= 1
 DIR_LEFT	= 2
@@ -165,7 +173,7 @@ DIR_UP		= 4
 }
 
 ; *******************************************************************
-; Add points to the totabl number of points
+; Add points to the total number of points
 ; *******************************************************************
 ; INPUTS:	.points = the amount of points to add to total
 ; USES:		.A
@@ -186,7 +194,14 @@ DIR_UP		= 4
 	sta	POINTS		; Store high-byte of POINTS
 .end:
 	cld
+}
 
+; *****************************************************************************
+; Write the players current points to the screen
+; *****************************************************************************
+; USES:		.A
+; *****************************************************************************
+!macro WRITE_POINTS {
 	; Move cursor to 8,1. 3rd option tells macro that we are using
 	; immediate values instead of variables
 	+VERA_GO_XY 8, 1, 1
@@ -198,13 +213,6 @@ DIR_UP		= 4
 	inc	VERA_ADDR_LOW
 	+WRITE_BCD_NUM POINTS+2	; Write low-byte of POINTS to screen
 }
-
-; *******************************************************************
-; Includes
-; *******************************************************************
-!src "x16.inc"
-!src "text.inc"
-!src "vera.inc"
 
 	jmp	main
 
@@ -219,25 +227,15 @@ init_vars:
 	sta	RANDNUM
 	sta	RANDNUM+1
 
-	lda	#8
-	sta	PGHOSTS_DELAY
-	sta	PGHOSTS_SPEED
-
 	lda	#60
 	sta	JIFFIES
 
 	lda	#10
 	sta	JOY_DELAY
 
-	lda	#60
-	sta	GHOSTS_DELAY
-	sta	GHOSTS_SPEED
-
 	lda	#5
 	sta	PLAYER_DELAY
 	sta	PLAYER_SPEED
-	sta	DGHOSTS_DELAY
-	sta	DGHOSTS_SPEED
 
 	stz	IRQ_TRIG	; IRQ_TRIG = 0
 	stz	POINTS		; POINTS = 000000 (BCD)
@@ -259,26 +257,47 @@ Levels			; Level structure, total size 8 bytes
 	!byte	4	; Number of static walls
 	!byte	85	; Number of walls
 	!byte	2	; Number of ghosts
-	!byte	0	; Number of portals
+	!byte	40	; Ghost speed (number of jiffies before ghost moves)
 	!byte	0	; Number of poltergeists
+	!byte	0	; PGhost speed (number of jiffies before pghosts moves)
 	!byte	0	; Number of dimensional ghosts
+	!byte	0	; DGhost speed (number of jiffies before dghosts moves)
+	!byte	0	; Number of portals
+	!byte	0	; Portal delay (seconds before portal releases a ghost)
+
 	!word	$F056	; Random seed
 	!byte	4	; Number of static walls
 	!byte	85	; Number of walls
 	!byte	3	; Number of ghosts
-	!byte	0	; Number of portals
+	!byte	40	; Ghost speed (number of jiffies before ghost moves)
 	!byte	0	; Number of poltergeists
+	!byte	0	; PGhost speed (number of jiffies before pghosts moves)
 	!byte	0	; Number of dimensional ghosts
+	!byte	0	; DGhost speed (number of jiffies before dghosts moves)
+	!byte	0	; Number of portals
+	!byte	0	; Portal delay (seconds before portal releases a ghost)
+
+	!word	$5711	; Random seed
+	!byte	4	; Number of static walls
+	!byte	80	; Number of walls
+	!byte	4	; Number of ghosts
+	!byte	40	; Ghost speed (number of jiffies before ghost moves)
+	!byte	0	; Number of poltergeists
+	!byte	0	; PGhost speed (number of jiffies before pghosts moves)
+	!byte	0	; Number of dimensional ghosts
+	!byte	0	; DGhost speed (number of jiffies before dghosts moves)
+	!byte	0	; Number of portals
+	!byte	0	; Portal delay (seconds before portal releases a ghost)
 
 ; *****************************************************************************
 ; X and Y coordinates for ghosts
 ; *****************************************************************************
-Ghost_X		!fill	100,0
-Ghost_Y		!fill	100,0
-D_Ghost_X	!fill	100,0
-D_Ghost_Y	!fill	100,0
-P_Ghost_X	!fill	100,0
-P_Ghost_Y	!fill	100,0
+Ghost_X		!fill	20,1
+Ghost_Y		!fill	20,2
+D_Ghost_X	!fill	20,3
+D_Ghost_Y	!fill	20,4
+P_Ghost_X	!fill	20,5
+P_Ghost_Y	!fill	20,6
 
 ; *******************************************************************
 ; Starting point of program
@@ -296,7 +315,6 @@ main:
 
 	; Wait for user to start game, use the time to
 	; to do random numbers
-
 	jsr	wait_for_start
 
 	lda	#0		; Go to 40x30 mode
@@ -583,18 +601,47 @@ do_ghosts:
 	sta	@y_coord
 	lda	#>D_Ghost_Y
 	sta	@y_coord+1
-	jsr	move_ghost
-
+	jmp	move_ghost
 @end:
 	rts
 
 ; *****************************************************************************
+; Handle that the player has died. Remove a life and restart current level
 ; *****************************************************************************
 ; *****************************************************************************
-player_died: ; reset system back to basic
-	lda	#0
-	sta	$9F60
-	jmp	($FFFC)
+player_died:
+	dec	LIVES
+	beq	+
+	ldy	LEVEL
+	jsr	load_level
+	jmp	init_playfield
++
+	jsr	write_lives
+	+GOTO_XY 13, 13
+	ldx	#<Game_over1
+	ldy	#>Game_over1
+	jsr	print_str
+	+GOTO_XY 13, 14
+	ldx	#<Game_over2
+	ldy	#>Game_over2
+	jsr	print_str
+	+GOTO_XY 13, 15
+	ldx	#<Game_over3
+	ldy	#>Game_over3
+	jsr	print_str
+	+GOTO_XY 13, 16
+	ldx	#<Game_over4
+	ldy	#>Game_over4
+	jsr	print_str
+	+GOTO_XY 13, 17
+	ldx	#<Game_over5
+	ldy	#>Game_over5
+	jsr	print_str
+	bra	*
+
+;	lda	#0
+;	sta	$9F60
+;	jmp	($FFFC)
 	rts
 
 ; *****************************************************************************
@@ -605,30 +652,30 @@ player_died: ; reset system back to basic
 ; USES:		.A, .X & .Y
 ; *****************************************************************************
 wait_for_start:
-	lda	#0
+	lda	#0		; Read 1st joystick (or keyboard)
 	jsr	JOY_GET
-	cmp	#$00
+	cmp	#$00		; If 0, program is started in emu from cmdline
 	beq	@emu_run
 
-@wait_for_settle:
-	jsr	randomize
-	lda	#0
-	jsr	JOY_GET
+@wait_for_settle:		; When run normally, the return key is read
+	jsr	randomize	; several times after program is actually
+	lda	#0		; Started, so wait for the JOY_GET function
+	jsr	JOY_GET		; to settle and return no key presses
 	cmp	#$FF
 	bne	@wait_for_settle
 	bra	@norm_run
 
-@emu_run:
-	jsr	randomize
+@emu_run:			; When run form cmdline, we just wait for the
+	jsr	randomize	; result to be something other than 0
 	lda	#0
 	jsr	JOY_GET
 	cmp	#$00
 	beq	@emu_run
 
-@norm_run:
-	jsr	randomize
-	lda	#0
-	jsr	JOY_GET
+@norm_run:			; When we reach this point, we can expect the
+	jsr	randomize	; JOY_GET function to behave as documented and
+	lda	#0		; we can loop until user has pressed start
+	jsr	JOY_GET		; or return
 	and	#NES_STA
 	bne	@norm_run
 	rts
@@ -652,13 +699,42 @@ init_playfield:
 	ldx	RANDSEED+1
 	stx	RANDNUM+1
 
+	jsr	zero_ghost_coords
 	jsr	clear_field
 	jsr	place_swalls	; Place static walls
 	jsr	place_walls	; Place walls
 	jsr	place_ghosts	; Place ghosts according to ZP variables
 	jsr	place_player
 	jsr	write_level	; Write the current level to screen
+	jsr	write_lives	; Write the current amount of lives
 	+SUM_GHOSTS
+	rts
+
+; *****************************************************************************
+; Ensure that all ghost coordinates are zeroed out. At the moment that means
+; X coordinates for Ghosts, Dimensional ghosts and Portal ghosts =   3
+; Y coordinates for Ghosts, Dimensional ghosts and Portal ghosts =   3
+; Each having a maximum of                                          20
+; Totalling  (3 + 3) * 20 bytes                                  = 120 bytes
+; *****************************************************************************
+; USES:		.X
+; *****************************************************************************
+zero_ghost_coords:
+	ldx	#(3+3)*20
+-	dex
+	stz	Ghost_X,x
+	bne	-
+	rts
+
+; *******************************************************************
+; Write the current amount of lives
+; *******************************************************************
+; INPUTS:	LIVES
+; USES:		.A
+; *******************************************************************
+write_lives:
+	+VERA_GO_XY 10,0,1
+	+WRITE_BCD_NUM LIVES
 	rts
 
 ; *******************************************************************
@@ -681,52 +757,73 @@ write_level:
 ;		NUMGHOSTS, NUMPORTALS, NUMPGHOSTS & NUMDGHOSTS
 ; *******************************************************************
 load_level:
+@level_ptr=TMP0
 	sty	LEVEL		; Store level
 	lda	#>Levels	; TMP0 pointer to start of Levels
-	sta	TMP1
+	sta	@level_ptr+1
 	lda	#<Levels
-	sta	TMP0
+	sta	@level_ptr
 @find_level:
 	dey			; When Y reaches 0, we have found level
 	beq	@do_load
-	lda	TMP0
-	clc			; Add 8 to the TMP0 pointer to point to
-	adc	#8		; next level
-	sta	TMP0
-	lda	TMP1
+	lda	@level_ptr
+	clc			; Add 12 to the level pointer to point to
+	adc	#12		; next level
+	sta	@level_ptr
+	lda	@level_ptr+1
 	adc	#0
-	sta	TMP1
+	sta	@level_ptr+1
 	jmp	@find_level	; Go back and see if we found right level
 @do_load:
-	lda	(TMP0),y	; Random Seed
+	lda	(@level_ptr),y	; Random Seed
 	sta	RANDSEED+0
 	iny
-	lda	(TMP0),y
+	lda	(@level_ptr),y
 	sta	RANDSEED+1
 
 	iny
-	lda	(TMP0),y	; Number of static walls
+	lda	(@level_ptr),y	; Number of static walls
 	sta	NUMSWALLS
 
 	iny
-	lda	(TMP0),y	; Number of walls / 5
+	lda	(@level_ptr),y	; Number of walls / 5
 	sta	NUMWALLS
 
 	iny
-	lda	(TMP0),y	; Number of ghosts
+	lda	(@level_ptr),y	; Number of ghosts
 	sta	NUMGHOSTS
 
 	iny
-	lda	(TMP0),y	; Number of portals
-	sta	NUMPORTALS
+	lda	(@level_ptr),y	; Ghost delay/speed
+	sta	GHOSTS_DELAY
+	sta	GHOSTS_SPEED
 
 	iny
-	lda	(TMP0),y	; Number of poltergeists
+	lda	(@level_ptr),y	; Number of poltergeists
 	sta	NUMPGHOSTS
 
 	iny
-	lda	(TMP0),y	; Number of dimensional ghosts
+	lda	(@level_ptr),y	; Poltergeist delay/speed
+	sta	PGHOSTS_DELAY
+	sta	PGHOSTS_SPEED
+
+	iny
+	lda	(@level_ptr),y	; Number of dimensional ghosts
 	sta	NUMDGHOSTS
+
+	iny
+	lda	(@level_ptr),y	; Dimensional ghost delay/speed
+	sta	DGHOSTS_DELAY
+	sta	DGHOSTS_SPEED
+
+	iny
+	lda	(@level_ptr),y	; Number of portals
+	sta	NUMPORTALS
+
+	iny
+	lda	(@level_ptr),y	; Portal delay
+	sta	PORTAL_DELAY
+
 	rts
 
 ; *******************************************************************
@@ -1130,15 +1227,40 @@ ghost_killed:
 	dec	NUMDGHOSTS	; Remove 1 dimensional ghost
 	+ADD_POINTS $30		; Dimensional ghosts gives 30 points
 
-@addit:
+@addit:	+WRITE_POINTS
 	+SUM_GHOSTS
 	tya
 	bne	+
 	; Handle that all ghosts are killed
 	ldy	LEVEL
 	iny
+	cpy	#4
+	beq	@game_over
 	jsr	load_level
 	jmp	init_playfield
+@game_over:
+	+GOTO_XY 13, 13
+	ldx	#<Game_over1
+	ldy	#>Game_over1
+	jsr	print_str
+	+GOTO_XY 13, 14
+	ldx	#<Game_over2
+	ldy	#>Game_over2
+	jsr	print_str
+	+GOTO_XY 13, 15
+	ldx	#<Game_over3
+	ldy	#>Game_over3
+	jsr	print_str
+	+GOTO_XY 13, 16
+	ldx	#<Game_over4
+	ldy	#>Game_over4
+	jsr	print_str
+	+GOTO_XY 13, 17
+	ldx	#<Game_over5
+	ldy	#>Game_over5
+	jsr	print_str
+	bra	*
+
 +	rts
 
 ; *****************************************************************************
@@ -1497,12 +1619,12 @@ draw_border:
 	jsr	CHROUT
 
 	+GOTO_XY 0, 0
-	ldx	#<.top_line1
-	ldy	#>.top_line1
+	ldx	#<Top_line1
+	ldy	#>Top_line1
 	jsr	print_str
 	+GOTO_XY 0, 1
-	ldx	#<.top_line2
-	ldy	#>.top_line2
+	ldx	#<Top_line2
+	ldy	#>Top_line2
 	jsr	print_str
 
 	lda	#$00
@@ -1625,92 +1747,92 @@ splash_screen:
 	jsr	CHROUT
 
 	+GOTO_XY 2, 10
-	ldx	#<.gc1
-	ldy	#>.gc1
+	ldx	#<Gc1
+	ldy	#>Gc1
 	jsr	print_str
 	+GOTO_XY 2, 11
-	ldx	#<.gc2
-	ldy	#>.gc2
+	ldx	#<Gc2
+	ldy	#>Gc2
 	jsr	print_str
 	+GOTO_XY 2, 12
-	ldx	#<.gc3
-	ldy	#>.gc3
+	ldx	#<Gc3
+	ldy	#>Gc3
 	jsr	print_str
 	+GOTO_XY 2, 13
-	ldx	#<.gc4
-	ldy	#>.gc4
+	ldx	#<Gc4
+	ldy	#>Gc4
 	jsr	print_str
 	+GOTO_XY 2, 14
-	ldx	#<.gc5
-	ldy	#>.gc5
+	ldx	#<Gc5
+	ldy	#>Gc5
 	jsr	print_str
-	+GOTO_XY 41-((.mail-.name)/2), 18
-	ldx	#<.name
-	ldy	#>.name
+	+GOTO_XY 41-((Mail-Name)/2), 18
+	ldx	#<Name
+	ldy	#>Name
 	jsr	print_str
-	+GOTO_XY 41-((.forcx16-.mail)/2), 20
-	ldx	#<.mail
-	ldy	#>.mail
+	+GOTO_XY 41-((For_cx16-Mail)/2), 20
+	ldx	#<Mail
+	ldy	#>Mail
 	jsr	print_str
-	+GOTO_XY 41-((.pstart-.forcx16)/2), 27
-	ldx	#<.forcx16
-	ldy	#>.forcx16
+	+GOTO_XY 41-((Pstart-For_cx16)/2), 27
+	ldx	#<For_cx16
+	ldy	#>For_cx16
 	jsr	print_str
-	+GOTO_XY 41-((.player_text-.pstart)/2), 36
-	ldx	#<.pstart
-	ldy	#>.pstart
+	+GOTO_XY 41-((Player_text-Pstart)/2), 36
+	ldx	#<Pstart
+	ldy	#>Pstart
 	jsr	print_str
 	+GOTO_XY 39, 24
-	ldx	#<.xl1
-	ldy	#>.xl1
+	ldx	#<Xl1
+	ldy	#>Xl1
 	jsr	print_str
 	+GOTO_XY 40, 25
-	ldx	#<.xl2
-	ldy	#>.xl2
+	ldx	#<Xl2
+	ldy	#>Xl2
 	jsr	print_str
 	+GOTO_XY 41, 26
-	ldx	#<.xl3
-	ldy	#>.xl3
+	ldx	#<Xl3
+	ldy	#>Xl3
 	jsr	print_str
 	+GOTO_XY 41, 28
-	ldx	#<.xl5
-	ldy	#>.xl5
+	ldx	#<Xl5
+	ldy	#>Xl5
 	jsr	print_str
 	+GOTO_XY 40, 29
-	ldx	#<.xl6
-	ldy	#>.xl6
+	ldx	#<Xl6
+	ldy	#>Xl6
 	jsr	print_str
 	+GOTO_XY 39, 30
-	ldx	#<.xl7
-	ldy	#>.xl7
+	ldx	#<Xl7
+	ldy	#>Xl7
 	jsr	print_str
 	+GOTO_XY 35, 40
-	ldx	#<.player_text
-	ldy	#>.player_text
+	ldx	#<Player_text
+	ldy	#>Player_text
 	jsr	print_str
 	+GOTO_XY 35, 42
-	ldx	#<.portal_text
-	ldy	#>.portal_text
+	ldx	#<Portal_text
+	ldy	#>Portal_text
 	jsr	print_str
 	+GOTO_XY 35, 44
-	ldx	#<.ghost_text
-	ldy	#>.ghost_text
+	ldx	#<Ghost_text
+	ldy	#>Ghost_text
 	jsr	print_str
 	+GOTO_XY 35, 46
-	ldx	#<.pghost_text
-	ldy	#>.pghost_text
+	ldx	#<Pghost_text
+	ldy	#>Pghost_text
 	jsr	print_str
 	+GOTO_XY 35, 48
-	ldx	#<.dghost_text
-	ldy	#>.dghost_text
+	ldx	#<Dghost_text
+	ldy	#>Dghost_text
 	jsr	print_str
 	+GOTO_XY 35, 50
-	ldx	#<.wall_text
-	ldy	#>.wall_text
+	ldx	#<Wall_text
+	ldy	#>Wall_text
 	jsr	print_str
 	+GOTO_XY 35, 52
-	ldx	#<.swall_text
-	ldy	#>.swall_text
+	ldx	#<Swall_text
+	ldy	#>Swall_text
 	jsr	print_str
 	rts
 
