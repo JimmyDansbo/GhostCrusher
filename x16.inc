@@ -169,6 +169,19 @@ LIGHTGRAY	= 15
 }
 
 ; *****************************************************************************
+; Restore the original interrupt handler
+; *****************************************************************************
+; USES:		A
+; OUTPUTS:	Address of old handler must be passed in .old_handler
+; *****************************************************************************
+!macro RESTORE_INT_VECTOR .old_handler {
+	lda	.old_handler
+	sta	IRQ_VEC
+	lda	.old_handler+1
+	sta	IRQ_VEC+1
+}
+
+; *****************************************************************************
 ; Install new interrupt handler
 ; *****************************************************************************
 ; INPUTS:	.handler = address of new interrupt handler
@@ -176,8 +189,9 @@ LIGHTGRAY	= 15
 ; *****************************************************************************
 !macro INSTALL_INT_HANDLER .handler {
 	sei			; Disable interrupts
-	lda	#1		; Tell VERA that we want interrupts
-	sta	VERA_IEN	; on each VSYNC
+	lda	VERA_IEN	; Tell VERA that we want interrupts
+	ora	#$01		; on each VSYNC
+	sta	VERA_IEN	
 	lda	#<.handler	; Write address of local interrupt
 	sta	IRQ_VEC		; handler to the interrupt
 	lda	#>.handler	; vector address ($0314)
