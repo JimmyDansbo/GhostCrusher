@@ -10,7 +10,7 @@
 !src "x16.inc"
 !src "text.inc"
 !src "vera.inc"
-
+!src "farbranch.inc"
 
 ; *******************************************************************
 ; Definitions of variables in Zero Page
@@ -44,7 +44,7 @@ PGHOSTS_DELAY	=	GHOSTS_SPEED+1
 PGHOSTS_SPEED	=	PGHOSTS_DELAY+1
 DGHOSTS_DELAY	=	PGHOSTS_SPEED+1
 DGHOSTS_SPEED	=	DGHOSTS_DELAY+1
-PORTAL_DELAY	=	DGHOSTS_SPEED+1
+PORTALS_SPEED	=	DGHOSTS_SPEED+1
 
 DIR_DOWN	= 1
 DIR_LEFT	= 2
@@ -226,17 +226,22 @@ init_vars:
 	sta	LIVES
 	sta	RANDNUM
 	sta	RANDNUM+1
-
-	lda	#60
-	sta	JIFFIES
+	sta	PLAYER_DELAY
+	sta	PLAYER_SPEED
 
 	lda	#10
 	sta	JOY_DELAY
 
-	lda	#5
-	sta	PLAYER_DELAY
-	sta	PLAYER_SPEED
+	lda	#60
+	sta	JIFFIES
 
+	ldy	#End_game-Portal_delay
+	lda	#0
+-	sta	Portal_delay,y
+	dey
+	bne	-
+
+	stz	End_game
 	stz	IRQ_TRIG	; IRQ_TRIG = 0
 	stz	POINTS		; POINTS = 000000 (BCD)
 	stz	POINTS+1
@@ -244,7 +249,7 @@ init_vars:
 	rts
 
 ; *****************************************************************************
-; 2 bytes of memory to store address of original IRQ hanlder function
+; 2 bytes of memory to store address of original IRQ handler function
 ; *****************************************************************************
 Old_irq_handler:
 	!word	$0000
@@ -252,7 +257,8 @@ Old_irq_handler:
 ; *******************************************************************
 ; Level definitions
 ; *******************************************************************
-Levels			; Level structure, total size 8 bytes
+NUM_LEVELS	=	3
+Levels:			; Level structure, total size 8 bytes
 	!word	$47DE	; Random seed
 	!byte	4	; Number of static walls
 	!byte	85	; Number of walls
@@ -289,15 +295,36 @@ Levels			; Level structure, total size 8 bytes
 	!byte	0	; Number of portals
 	!byte	0	; Portal delay (seconds before portal releases a ghost)
 
+	!word	$0000	; Random seed
+	!byte	2	; Number of static walls
+	!byte	60	; Number of walls
+	!byte	0	; Number of ghosts
+	!byte	40	; Ghost speed (number of jiffies before ghost moves)
+	!byte	0	; Number of poltergeists
+	!byte	30	; PGhost speed (number of jiffies before pghosts moves)
+	!byte	0	; Number of dimensional ghosts
+	!byte	25	; DGhost speed (number of jiffies before dghosts moves)
+	!byte	2	; Number of portals
+	!byte	2	; Portal delay (seconds before portal releases a ghost)
+
 ; *****************************************************************************
 ; X and Y coordinates for ghosts
 ; *****************************************************************************
-Ghost_X		!fill	20,1
-Ghost_Y		!fill	20,2
-D_Ghost_X	!fill	20,3
-D_Ghost_Y	!fill	20,4
-P_Ghost_X	!fill	20,5
-P_Ghost_Y	!fill	20,6
+MAX_GHOSTS	=	5
+MAX_P_GHOSTS	=	5
+MAX_D_GHOSTS	=	5
+MAX_PORTALS	=	5
+Ghost_X		!fill	MAX_GHOSTS+1,0
+Ghost_Y		!fill	MAX_GHOSTS+1,0
+D_Ghost_X	!fill	MAX_D_GHOSTS+1,0
+D_Ghost_Y	!fill	MAX_D_GHOSTS+1,0
+P_Ghost_X	!fill	MAX_P_GHOSTS+1,0
+P_Ghost_Y	!fill	MAX_P_GHOSTS+1,0
+Portal_X	!fill	MAX_PORTALS+1,0
+Portal_Y	!fill	MAX_PORTALS+1,0
+Portal_delay	!fill	MAX_PORTALS+1,0
+
+End_game	!byte	$00
 
 ; *******************************************************************
 ; Starting point of program
@@ -341,10 +368,28 @@ main:
 	jsr	do_ghosts	; Move ghosts
 
 	lsr	IRQ_TRIG	; Reset IRQ_TRIG
+	lda	End_game
+	beq	@game_loop
 
-	bra	@game_loop
+	; Wait for user to press start/return button
+	jsr	wait_for_start
+	; Remove custome interrupt handler
+	sei
+	+RESTORE_INT_VECTOR Old_irq_handler
+	cli
+	; Set screen to 80x60
+	lda	#2
+	sec
+	jsr	SCRMOD
+	; Empty keyboard buffer
+-	jsr	GETIN
+	bne	-
+	; Set blue background, white text and clear the screen
+	lda	#(BLUE<<4)+WHITE
+	sta	COLOR_PORT
+	lda	#147
+	jsr	CHROUT
 
-@main_end:			; So far, we never get here
 	rts
 
 ; *****************************************************************************
@@ -386,10 +431,37 @@ calc_dist:
 	adc	TMP6		; complete distance
 	rts
 
+
 ; *****************************************************************************
+; Compare value in .A with value in .dist. If .A is smaller, update .dist
+; and write .curx & .cury values to .newx and .newy variables.
 ; *****************************************************************************
+; INPUTS:	.A & .dist = distance values to be compared
+;		.curx & .cury = X & Y values that may be copied
+;		.newx & .newy = variables to hold X & Y values
+; OUTPUTS:	.dist, .newx & .newy (updated if .A < .dist)
+; *****************************************************************************
+!macro UPD_DIST_XY .dist, .curx, .cury, .newx, .newy {
+	cmp	.dist		; If returned distance is shorter than the
+	bcs	.end		; previous saved, save this dist and coords.
+	sta	.dist
+	lda	.curx
+	sta	.newx
+	lda	.cury
+	sta	.newy
+.end:
+}
+
+
+; *****************************************************************************
+; Move ghosts in the direction of the player if there are any open spaces
+; *****************************************************************************
+; INPUTS:	TMP0 & TMP1 = Pointer to ghost X coordinate array
+;		TMP2 & TMP3 = Pointer to ghost Y coordinate array
+; USES:		.A, .X, .Y, TMP4-TMP9
 ; *****************************************************************************
 move_ghost:
+; Local variable names
 @x_arr=TMP0
 @y_arr=TMP2
 @field_x=TMP4
@@ -398,17 +470,16 @@ move_ghost:
 @new_x=TMP8
 @new_y=TMP9
 
-	ldy	#0
+	ldy	#0		; .Y used as index in X,Y arrays
 @loop:
-	stz	@new_x
+	stz	@new_x		; Reset distance and new coordinates
 	stz	@new_y
 	lda	#$FF
 	sta	@dist
 
 	lda	(@x_arr),y	; Load current x coord
-	bne	+		; If it is zero, we are done
-	jmp	@end
-+	sta	@field_x	; Store current x coord in ZP variable
+	+FBEQ	@end		; If it is zero, we are done
+	sta	@field_x	; Store current x coord in ZP variable
 	lda	(@y_arr),y
 	sta	@field_y	; Store current y coord in ZP variable
 
@@ -416,105 +487,58 @@ move_ghost:
 	dec	@field_y	; X-1, Y-1
 	jsr	calc_dist
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	inc	@field_x	; Top middle field
+	inc	@field_x	; Top middle field
 	jsr	calc_dist	; X,   Y-1
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	inc	@field_x	; Top right field
+	inc	@field_x	; Top right field
 	jsr	calc_dist	; X+1, Y-1
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	inc	@field_y	; Right middle field
+	inc	@field_y	; Right middle field
 	jsr	calc_dist	; X+1, Y
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	inc	@field_y	; Bottom right field
+	inc	@field_y	; Bottom right field
 	jsr	calc_dist	; X+1, Y+1
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	dec	@field_x	; Bottom middle field
+	dec	@field_x	; Bottom middle field
 	jsr	calc_dist	; X,   Y+1
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	dec	@field_x	; Bottom left field
+	dec	@field_x	; Bottom left field
 	jsr	calc_dist	; X-1, Y+1
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	dec	@field_y	; Left middle field
+	dec	@field_y	; Left middle field
 	jsr	calc_dist	; X-1, Y
 
-	cmp	@dist		; If returned distance is shorter than the
-	bcs	+		; previous saved, save this dist and coords.
-	sta	@dist
-	lda	@field_x
-	sta	@new_x
-	lda	@field_y
-	sta	@new_y
+	+UPD_DIST_XY @dist, @field_x, @field_y, @new_x, @new_y
 
-+	lda	@new_x		; If new_x is 0, no moveable fields were found
-	bne	+		; Check next
+	lda	@new_x		; If new_x is 0, no moveable fields were found
+	bne	@ghost_move	; Check next
 	iny
-	jmp	@loop
+	jmp	@loop		; Check next ghost
 
-+	lda	(@y_arr),y
+@ghost_move:
+	lda	(@y_arr),y
 	sta	VERA_ADDR_HIGH
 	lda	(@x_arr),y
 	asl
 	sta	VERA_ADDR_LOW
 	ldx	VERA_DATA0	; Save ghost character
-	lda	#' '		; Write an empty field
+	lda	#' '		; Write an empty field...
 	sta	VERA_DATA0
-	inc	VERA_ADDR_LOW	; With PLAY_COL color
+	inc	VERA_ADDR_LOW	; with PLAY_COL color
 	lda	#PLAY_COL
 	sta	VERA_DATA0
 
@@ -534,28 +558,27 @@ move_ghost:
 	sta	VERA_DATA0
 
 	cpx	#PLAYER		; If we overwrote the PLAYER character, the
-	bne	+		; Player has died
-	jmp	player_died
-
-+	iny
-	jmp	@loop
+	+FBEQ	player_died	; Player has died. (jmp instead of jsr to
+				; avoid returning to this function)
+	iny
+	jmp	@loop		; Check next ghost
 @end
 	rts
 
 ; *****************************************************************************
+; Handle moving of ghosts as well as converting portals to dimensional ghosts
 ; *****************************************************************************
 ; *****************************************************************************
 do_ghosts:
 @x_coord=TMP0
 @y_coord=TMP2
 	lda	NUMGHOSTS
-	beq	@pghosts
+	beq	@pghosts	; If there are no ghosts, check poltergeists
 	; Move normal ghosts
 	dec	GHOSTS_DELAY	; Only move ghosts after the delay is 0
 	bne	@pghosts
 	lda	GHOSTS_SPEED	; Reset the delay for next move
 	sta	GHOSTS_DELAY
-
 	lda	#<Ghost_X	; Use zp memory as pointers to ghost X & Y
 	sta	@x_coord
 	lda	#>Ghost_X
@@ -565,16 +588,14 @@ do_ghosts:
 	lda	#>Ghost_Y
 	sta	@y_coord+1
 	jsr	move_ghost
-
 @pghosts:
 	lda	NUMPGHOSTS
-	beq	@dghosts
-	; Move portal ghosts
+	beq	@dghosts	; If there are no poltergeists, check dimensional
+	; Move poltergeists
 	dec	PGHOSTS_DELAY
 	bne	@dghosts
 	lda	PGHOSTS_SPEED
 	sta	PGHOSTS_DELAY
-
 	lda	#<P_Ghost_X
 	sta	@x_coord
 	lda	#>P_Ghost_X
@@ -584,13 +605,12 @@ do_ghosts:
 	lda	#>P_Ghost_Y
 	sta	@y_coord+1
 	jsr	move_ghost
-
 @dghosts:
 	lda	NUMDGHOSTS
-	beq	@end
+	beq	@portals	; If there are no dimensional ghosts, check portals
 	; move dimensional ghosts
 	dec	DGHOSTS_DELAY
-	bne	@end
+	bne	@portals
 	lda	DGHOSTS_SPEED
 	sta	DGHOSTS_DELAY
 	lda	#<D_Ghost_X
@@ -601,9 +621,57 @@ do_ghosts:
 	sta	@y_coord
 	lda	#>D_Ghost_Y
 	sta	@y_coord+1
-	jmp	move_ghost
+	jsr	move_ghost
+@portals:
+	lda	NUMPORTALS
+	beq	@end		; If there are no portals, just continue
+	; Convert portal to dimensional ghost after delay
+	lda	JIFFIES		; Only count down once a second
+	cmp	#35
+	bne	@end
+
+	ldx	#0
+-	dec	Portal_delay,x
+	bne	+
+	bra	convert_portal	; convert and return to caller
++	inx
+	cpx	NUMPORTALS
+	bne	-
 @end:
 	rts
+
+; *****************************************************************************
+; Convert a portal to a dimensional ghost
+; *****************************************************************************
+; INPUTS:	.X = index of portal that needs to be converted
+; USES:		.A & .Y
+; *****************************************************************************
+convert_portal:
+	ldy	NUMDGHOSTS
+	lda	Portal_X,x
+	sta	TMP0
+	sta	D_Ghost_X,y
+	asl
+	sta	VERA_ADDR_LOW
+	lda	Portal_Y,x
+	sta	TMP1
+	sta	D_Ghost_Y,y
+	sta	VERA_ADDR_HIGH
+	lda	#DGHOST
+	sta	VERA_DATA0
+
+	inc	NUMDGHOSTS
+
+	lda	#<Portal_X
+	sta	TMP2
+	lda	#>Portal_X
+	sta	TMP3
+	lda	#<Portal_Y
+	sta	TMP4
+	lda	#>Portal_Y
+	sta	TMP5
+	jmp	rem_ghost_coords
+;	rts
 
 ; *****************************************************************************
 ; Handle that the player has died. Remove a life and restart current level
@@ -637,11 +705,8 @@ player_died:
 	ldx	#<Game_over5
 	ldy	#>Game_over5
 	jsr	print_str
-	bra	*
-
-;	lda	#0
-;	sta	$9F60
-;	jmp	($FFFC)
+	lda	#$FF
+	sta	End_game
 	rts
 
 ; *****************************************************************************
@@ -711,16 +776,12 @@ init_playfield:
 	rts
 
 ; *****************************************************************************
-; Ensure that all ghost coordinates are zeroed out. At the moment that means
-; X coordinates for Ghosts, Dimensional ghosts and Portal ghosts =   3
-; Y coordinates for Ghosts, Dimensional ghosts and Portal ghosts =   3
-; Each having a maximum of                                          20
-; Totalling  (3 + 3) * 20 bytes                                  = 120 bytes
+; Ensure that all ghost coordinates are zeroed out.
 ; *****************************************************************************
 ; USES:		.X
 ; *****************************************************************************
 zero_ghost_coords:
-	ldx	#(3+3)*20
+	ldx	#Portal_delay-Ghost_X	; Size of all coordinate arrays
 -	dex
 	stz	Ghost_X,x
 	bne	-
@@ -822,8 +883,17 @@ load_level:
 
 	iny
 	lda	(@level_ptr),y	; Portal delay
-	sta	PORTAL_DELAY
 
+	ldy	NUMPORTALS	; If > 0, then store portal delay
+	beq	@end
+	ldy	#0		; 1st portal uses portal delay, following
+-	sta	Portal_delay,y	; portals wait in increments of 2 seconds
+	inc
+	inc
+	iny
+	cpy	NUMPORTALS
+	bne	-
+@end:
 	rts
 
 ; *******************************************************************
@@ -1151,7 +1221,15 @@ rem_ghost_coords:
 	; Remove coordinates and ensure to move all coordinates after this
 	; down 1 byte to ensure there are no "holes" in the array
 @do_remove:
-	iny			; Load next X and Y coordinates
+	lda	@ghost_x	; If we are removing a portal (found by checking
+	cmp	#<Portal_X	; low-byte of variable address) we need to
+	bne	+		; remove entries from Portal_delay array
+	iny
+	lda	Portal_delay,y
+	dey
+	sta	Portal_delay,y
+
++	iny			; Load next X and Y coordinates
 	lda	(@ghost_x),y
 	tax
 	lda	(@ghost_y),y
@@ -1195,7 +1273,17 @@ ghost_killed:
 	cmp	#PORTAL		; is it a portal?
 	beq	+
 	jmp	@is_pghost	; if not check next
-+	dec	NUMPORTALS	; Remove 1 portal
++	lda	#<Portal_X
+	sta	@ghost_x
+	lda	#>Portal_X
+	sta	@ghost_x+1
+	lda	#<Portal_Y
+	sta	@ghost_y
+	lda	#>Portal_Y
+	sta	@ghost_y+1
+	jsr	rem_ghost_coords
+; remove portal delay
+	dec	NUMPORTALS	; Remove 1 portal
 	+ADD_POINTS $10		; Portal gives 10 points (it does not move)
 	jmp	@addit
 @is_pghost:
@@ -1234,7 +1322,7 @@ ghost_killed:
 	; Handle that all ghosts are killed
 	ldy	LEVEL
 	iny
-	cpy	#4
+	cpy	#NUM_LEVELS+1
 	beq	@game_over
 	jsr	load_level
 	jmp	init_playfield
@@ -1259,8 +1347,8 @@ ghost_killed:
 	ldx	#<Game_over5
 	ldy	#>Game_over5
 	jsr	print_str
-	bra	*
-
+	lda	#$FF
+	sta	End_game
 +	rts
 
 ; *****************************************************************************
@@ -1442,47 +1530,59 @@ find_empty:
 ; USES:		.A, .X, TMP0-TMP3, TMP8=Y & TMP9=X
 ; *****************************************************************************
 place_ghosts:
+@x_ptr=TMP0
+@y_ptr=TMP2
 	stz	VERA_ADDR_BANK		; No increment
 
+	lda	#<Portal_X
+	sta	@x_ptr
+	lda	#>Portal_X
+	sta	@x_ptr+1
+	lda	#<Portal_Y
+	sta	@y_ptr
+	lda	#>Portal_Y
+	sta	@y_ptr+1
 	ldy	#PORTAL			; Portal character
 	ldx	NUMPORTALS		; Number of portals
 	jsr	p_ghost
 
 	lda	#<Ghost_X
-	sta	TMP0
+	sta	@x_ptr
 	lda	#>Ghost_X
-	sta	TMP1
+	sta	@x_ptr+1
 	lda	#<Ghost_Y
-	sta	TMP2
+	sta	@y_ptr
 	lda	#>Ghost_Y
-	sta	TMP3
+	sta	@y_ptr+1
 	ldy	#GHOST			; Ghost character
 	ldx	NUMGHOSTS		; Number of ghosts
 	jsr	p_ghost
 
 	lda	#<P_Ghost_X
-	sta	TMP0
+	sta	@x_ptr
 	lda	#>P_Ghost_X
-	sta	TMP1
+	sta	@x_ptr+1
 	lda	#<P_Ghost_Y
-	sta	TMP2
+	sta	@y_ptr
 	lda	#>P_Ghost_Y
-	sta	TMP3
+	sta	@y_ptr+1
 	ldy	#PGHOST			; Poltergeist character
 	ldx	NUMPGHOSTS		; Number of poltergeists
 	jsr	p_ghost
 
 	lda	#<D_Ghost_X
-	sta	TMP0
+	sta	@x_ptr
 	lda	#>D_Ghost_X
-	sta	TMP1
+	sta	@x_ptr+1
 	lda	#<D_Ghost_Y
-	sta	TMP2
+	sta	@y_ptr
 	lda	#>D_Ghost_Y
-	sta	TMP3
+	sta	@y_ptr+1
 	ldy	#DGHOST			; Dimensional ghost character
 	ldx	NUMDGHOSTS		; Number of dimensional ghosts
 	bra	p_ghost
+;	rts				Not needed as last jmp/bra to p_ghost
+;					will ensure correct return to caller
 
 ; *****************************************************************************
 ; Place ghosts and portals randomly on the playing field
@@ -1495,18 +1595,22 @@ place_ghosts:
 ; USES:		.A
 ; *****************************************************************************
 p_ghost:
+@x_ptr=TMP0
+@y_ptr=TMP2
+@empty_y=TMP8
+@empty_x=TMP9
 	beq	@end
 	jsr	find_empty	; Find an empty field
 
 	; Save coordinates
-	lda	TMP9		; Save ghost X coordinate
-	sta	(TMP0)
-	lda	TMP8		; Save ghost Y coordinate
-	sta	(TMP2)
+	lda	@empty_x	; Save ghost X coordinate
+	sta	(@x_ptr)
+	lda	@empty_y	; Save ghost Y coordinate
+	sta	(@y_ptr)
 
 	; Increment ZP pointers to be ready for next item
-	+INC16	TMP0
-	+INC16	TMP2
+	+INC16	@x_ptr
+	+INC16	@y_ptr
 
 	tya			; Load the ghost-character
 	sta	VERA_DATA0
@@ -1834,143 +1938,4 @@ splash_screen:
 	ldx	#<Swall_text
 	ldy	#>Swall_text
 	jsr	print_str
-	rts
-
-
-
-
-
-
-
-
-
-
-; *****************************************************************************
-; Mark a field in the A* structure as an obstruction, I.E. a wall or a ghost.
-; *****************************************************************************
-; INPUTS:	TMP8 and TMP9 as the Y and X coordinates respectively
-;		.A = obstruction ($FF if obstruction, $00 if not obstruction)
-; USES:		.A, .Y, TMP0, TMP1 & TMP7
-; *****************************************************************************
-mark_obstruction:
-@field=TMP0
-@mark=TMP7
-@y_coord=TMP8
-@x_coord=TMP9
-	sta	@mark
-;	lda	#<A_star
-	sta	@field
-;	lda	#>A_star
-	sta	@field+1
-
-	ldy	#1
-@check_y:
-	lda	(@field),y	; Load y-coord of field.
-	cmp	@y_coord	; If it is equal to @y_coord, jump to x-checking
-	beq	@check_x
-	lda	@field		; Add 38*3 to the base address to get to the
-	clc			; next line of fields
-	adc	#38*3
-	sta	@field
-	lda	@field+1
-	adc	#0
-	sta	@field+1
-	bra	@check_y
-
-@check_x:
-	ldy	#0
--	lda	(@field),y	; Load x-coord of field
-	cmp	@x_coord	; If = @x_coord, jump out of loop
-	beq	@found_it
-	lda	@field		; Add 38*3 to the base address to get to the
-	clc			; next line of fields
-	adc	#3
-	sta	@field
-	lda	@field+1
-	adc	#0
-	sta	@field+1
-	bra	-
-
-@found_it:
-	ldy	#2		; Set or clear high-bit of distance
-	lda	@mark
-	bpl	+
-	lda	(@field),y
-	and	#$7F
-	bra	++
-+	lda	(@field),y
-	ora	#$80
-++	sta	(@field),y
-	rts
-
-; *****************************************************************************
-; Calculate every fields distance to the player
-; *****************************************************************************
-; INPUTS:	PLAYER_X, PLAYER_Y
-; USES:		.A, .Y, TMP0-TMP3
-; *****************************************************************************
-;calc_dist:
-@field=TMP0
-@dist=TMP2
-;	lda	#<A_star
-	sta	@field
-;	lda	#>A_star
-	sta	@field+1
-@loop:
-	ldy	#0
-	lda	(@field),y	; Current fields x coordinate
-	sec
-	sbc	PLAYER_X
-	bpl	@handle_y
-	eor	#$FF		; Invert result to get correct result
-	inc
-
-@handle_y:
-	sta	@dist
-	iny
-	lda	(@field),y	; Current fields y coordinate
-	sec
-	sbc	PLAYER_Y
-	bpl	@store_dist
-	eor	#$FF		; Invert result to get correct result
-	inc
-
-@store_dist:
-	clc
-	adc	@dist
-	sta	@dist
-	iny
-	lda	(@field),y	; Current fields distance
-	bpl	+		; Branch if bit7 clear
-	lda	@dist
-	ora	#$80
-	bra	++
-+	lda	@dist
-++	sta	(@field),y	; Save obstruction and distance
-
-	dey
-	lda	(@field),y	; Current fields y coordinate
-	cmp	#28
-	beq	+		; If y-coord = max, check x-coord
-	lda	@field		; Go to next field by adding 3
-	clc
-	adc	#3
-	sta	@field
-	lda	@field+1
-	adc	#0
-	sta	@field+1
-	jmp	@loop
-+	dey
-	lda	(@field),y	; Current fields x coordinate
-	cmp	#38
-	beq	+		; If x-coord = max, we have checked all fields
-	lda	@field		; Go to next field by adding 3
-	clc
-	adc	#3
-	sta	@field
-	lda	@field+1
-	adc	#0
-	sta	@field+1
-	jmp	@loop
-+
 	rts
