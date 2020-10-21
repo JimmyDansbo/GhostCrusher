@@ -257,9 +257,10 @@ Old_irq_handler:
 ; *******************************************************************
 ; Level definitions
 ; *******************************************************************
-NUM_LEVELS	=	3
-Levels:			; Level structure, total size 8 bytes
-	!word	$47DE	; Random seed
+NUM_LEVELS	=	20
+Levels:			; Level structure
+	; Level 1
+	!word	$873B	; Random seed
 	!byte	4	; Number of static walls
 	!byte	85	; Number of walls
 	!byte	2	; Number of ghosts
@@ -271,41 +272,83 @@ Levels:			; Level structure, total size 8 bytes
 	!byte	0	; Number of portals
 	!byte	0	; Portal delay (seconds before portal releases a ghost)
 
-	!word	$F056	; Random seed
-	!byte	4	; Number of static walls
-	!byte	85	; Number of walls
-	!byte	3	; Number of ghosts
-	!byte	40	; Ghost speed (number of jiffies before ghost moves)
-	!byte	0	; Number of poltergeists
-	!byte	0	; PGhost speed (number of jiffies before pghosts moves)
-	!byte	0	; Number of dimensional ghosts
-	!byte	0	; DGhost speed (number of jiffies before dghosts moves)
-	!byte	0	; Number of portals
-	!byte	0	; Portal delay (seconds before portal releases a ghost)
-
+	; Level 2
 	!word	$5711	; Random seed
-	!byte	4	; Number of static walls
-	!byte	80	; Number of walls
-	!byte	4	; Number of ghosts
-	!byte	40	; Ghost speed (number of jiffies before ghost moves)
-	!byte	0	; Number of poltergeists
-	!byte	0	; PGhost speed (number of jiffies before pghosts moves)
-	!byte	0	; Number of dimensional ghosts
-	!byte	0	; DGhost speed (number of jiffies before dghosts moves)
-	!byte	0	; Number of portals
-	!byte	0	; Portal delay (seconds before portal releases a ghost)
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	  4,    80,    2,     40,    0,    30,    0,      25,   0,      30
+	; Level 3
+	!word	$28BC	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	  4,    80,    3,     40,    0,    30,    0,      25,   0,      30
+	; Level 4
+	!word	$CC96	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	  4,    80,    4,     40,    0,    30,    0,      25,   0,      30
+	; Level 5
+	!word	$5BF0	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	  4,    75,    4,     40,    0,    30,    0,      25,   0,      30
+	; Level 6
+	!word	$FBA0	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	  4,    70,    4,     40,    0,    30,    0,      25,   0,      30
+	; Level 7
+	!word	$97CF	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    0,     40,    1,    30,    0,      25,   0,      30
+	; Level 8
+	!word	$B1AD	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    1,     40,    1,    30,    0,      25,   0,      30
+	; Level 9
+	!word	$C2BD	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    2,     40,    1,    30,    0,      25,   0,      30
+	; Level 10
+	!word	$E4D3	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    3,     40,    1,    30,    0,      25,   0,      30
+	; Level 11
+	!word	$1383	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    1,     40,    2,    30,    0,      25,   0,      30
+	; Level 12
+	!word	$C4E6	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    2,     40,    2,    30,    0,      25,   0,      30
+	; Level 13
+	!word	$AEF0	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    3,     40,    2,    30,    0,      25,   0,      30
+	; Level 14
+	!word	$C46F	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    70,    4,     40,    2,    30,    0,      25,   0,      30
+	; Level 15
+	!word	$A1B5	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    65,    4,     40,    2,    30,    0,      25,   0,      30
+	; Level 16
+	!word	$17A9	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 15,    65,    4,     40,    3,    30,    0,      25,   0,      30
+	; Level 17
+	!word	$3966	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 12,    65,    4,     40,    1,    30,    0,      25,   1,      30
+	; Level 18
+	!word	$481F	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 12,    65,    4,     40,    2,    30,    0,      25,   2,      30
+	; Level 19
+	!word	$679E	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 12,    65,    4,     40,    3,    30,    0,      25,   3,      30
+	; Level 20
+	!word	$1C2A	; Random seed
+	;	SWALLS,WALLS,GHOSTS,SPEED,PGHOSTS,SPEED,DGHOSTS,SPEED,PORTALS,SPEED
+	!byte	 10,    60,    4,     40,    4,    30,    0,      25,   4,      30
 
-	!word	$0000	; Random seed
-	!byte	2	; Number of static walls
-	!byte	60	; Number of walls
-	!byte	0	; Number of ghosts
-	!byte	40	; Ghost speed (number of jiffies before ghost moves)
-	!byte	0	; Number of poltergeists
-	!byte	30	; PGhost speed (number of jiffies before pghosts moves)
-	!byte	0	; Number of dimensional ghosts
-	!byte	25	; DGhost speed (number of jiffies before dghosts moves)
-	!byte	2	; Number of portals
-	!byte	2	; Portal delay (seconds before portal releases a ghost)
 
 ; *****************************************************************************
 ; X and Y coordinates for ghosts
@@ -352,16 +395,16 @@ main:
 	jsr	init_playfield
 
 	; This is the main loop, it will check the IRQ_TRIG variable
-	; each time it is set, it will call the do_game function and
-	; reset the IRQ_TRIG variable. This means that the do_game
-	; function will be called 60 times a second
+	; each time it is set, it will call the functions to handle the game and
+	; reset the IRQ_TRIG variable. This means that the functions
+	; will be called 60 times a second
 @game_loop:
 	wai
 	lda	IRQ_TRIG	; Load IRQ_TRIG
 	beq	@game_loop
 	; VSYNC IRQ has occurred, handle
 
-	jsr	randomize
++	jsr	randomize
 	jsr	do_clock	; Update the clock
 	jsr	do_player	; Move player according to joystick input
 	jsr	do_getjoy	; Read joystick input
@@ -802,11 +845,14 @@ write_lives:
 ; Write the current level on screen
 ; *******************************************************************
 ; INPUTS:	LEVEL
-; USES:		.A
+; USES:		.A & TMP0
 ; *******************************************************************
 write_level:
 	+VERA_GO_XY 22,0,1
-	+WRITE_BCD_NUM LEVEL
+	ldy	LEVEL
+	lda	int_2_bcd,y
+	sta	TMP0
+	+WRITE_BCD_NUM TMP0
 	rts
 
 ; *******************************************************************
@@ -1939,3 +1985,10 @@ splash_screen:
 	ldy	#>Swall_text
 	jsr	print_str
 	rts
+
+int_2_bcd ; conversion table: integer to BCD
+!for Outer, 0, 9 {
+	!for Inner, 0, 9 {
+		!byte (Outer << 4) OR Inner
+	}
+}
