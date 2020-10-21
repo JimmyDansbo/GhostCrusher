@@ -24,4 +24,4 @@ Here are pictures of the starting positions of each level.
 <img src=level17.jpg />
 <img src=level18.jpg />
 <img src=level19.jpg />
-<img src=level10.jpg />
+<img src=level20.jpg />
