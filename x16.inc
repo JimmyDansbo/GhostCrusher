@@ -117,7 +117,7 @@ TMPb		= $7B
 TMPc		= $7C
 TMPd		= $7D
 TMPe		= $7E
-TMPf		= $7f
+TMPf		= $7F
 
 ; PETSCII color codes
 PET_BLACK	= $90

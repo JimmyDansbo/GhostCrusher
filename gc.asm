@@ -67,12 +67,14 @@ DIR_UP		= 4
 ; Decrement a 16bit value
 ; *****************************************************************************
 ; INPUT:	.num = the value to be decremented
+; USES:		.A for testing for underflow
 ; *****************************************************************************
 !macro DEC16 .num {
-	dec	.num
-	bne	.end
+	lda .num
+	bne .end
 	dec	.num+1
 .end:
+	dec	.num
 }
 
 ; *******************************************************************
@@ -159,7 +161,7 @@ DIR_UP		= 4
 	lsr
 	ora	#$30		; Convert to petscii code
 	tax			; Save result in .X
-	lda	#0		; Coordinates 35x0
+	lda	#$B0+0		; Coordinates 35x0
 	sta	VERA_ADDR_HIGH
 	lda	#35*2
 	sta	VERA_ADDR_LOW
@@ -204,7 +206,8 @@ DIR_UP		= 4
 !macro WRITE_POINTS {
 	; Move cursor to 8,1. 3rd option tells macro that we are using
 	; immediate values instead of variables
-	+VERA_GO_XY 8, 1, 1
+
+	+VERA_GO_XY 8, $B0+1, 1
 	+WRITE_BCD_NUM POINTS	; Write high-byte of POINTS to screen
 	inc	VERA_ADDR_LOW
 	inc	VERA_ADDR_LOW
@@ -387,8 +390,8 @@ main:
 	; to do random numbers
 	jsr	wait_for_start
 
-	lda	#0		; Go to 40x30 mode
-	sec
+	lda	#3		; Go to 40x30 mode
+	clc
 	jsr	SCRMOD
 
 	jsr	draw_border
@@ -416,13 +419,13 @@ main:
 
 	; Wait for user to press start/return button
 	jsr	wait_for_start
-	; Remove custome interrupt handler
+	; Remove custom interrupt handler
 	sei
 	+RESTORE_INT_VECTOR Old_irq_handler
 	cli
 	; Set screen to 80x60
-	lda	#2
-	sec
+	lda	#0
+	clc
 	jsr	SCRMOD
 	; Empty keyboard buffer
 -	jsr	GETIN
@@ -699,6 +702,8 @@ convert_portal:
 	lda	Portal_Y,x
 	sta	TMP1
 	sta	D_Ghost_Y,y
+	clc
+	adc #$B0
 	sta	VERA_ADDR_HIGH
 	lda	#DGHOST
 	sta	VERA_DATA0
@@ -837,7 +842,7 @@ zero_ghost_coords:
 ; USES:		.A
 ; *******************************************************************
 write_lives:
-	+VERA_GO_XY 10,0,1
+	+VERA_GO_XY 10,$B0+0,1
 	+WRITE_BCD_NUM LIVES
 	rts
 
@@ -1430,7 +1435,7 @@ do_player:
 @btn_lt:
 	lda	BTN_LT
 	beq	@btn_rt
-	; Handle left button
+	; Handle left button 
 	lsr	BTN_LT
 	lda	#DIR_LEFT
 	jsr	can_move
@@ -1471,7 +1476,7 @@ do_clock:
 @do_update:
 	lda	#60		; Reset JIFFIES back to 60
 	sta	JIFFIES		; There are 60 Jiffies in a second
-	lda	#1		; The clock is located on line 1
+	lda	#$B0+1		; The clock is located on line 1
 	sta	VERA_ADDR_HIGH
 ;Do low sec
 	lda	#39*2		; Set VERA to address of low part
@@ -1556,7 +1561,7 @@ place_player:
 ; OUTPUT:	TMP8 = Y-coordinate, TMP9 = X-coordinate
 ; *******************************************************************
 find_empty:
-	+RAND	3, 29		; Find number between 3 and 29
+	+RAND	$B0+3, $B0+29		; Find number between 3 and 29
 	sta	VERA_ADDR_HIGH	; Set it as Y coordinate
 	sta	TMP8
 	+RAND	1, 39		; Find number between 1 and 39
@@ -1578,7 +1583,8 @@ find_empty:
 place_ghosts:
 @x_ptr=TMP0
 @y_ptr=TMP2
-	stz	VERA_ADDR_BANK		; No increment
+	lda #$01
+	sta	VERA_ADDR_BANK		; No increment
 
 	lda	#<Portal_X
 	sta	@x_ptr
@@ -1676,7 +1682,8 @@ p_ghost:
 ; *******************************************************************
 place_walls:
 	ldx	NUMWALLS
-	stz	VERA_ADDR_BANK		; No Increment
+	lda #$01
+	sta	VERA_ADDR_BANK		; No Increment
 @out_loop:
 	ldy	#5
 @in_loop:
@@ -1705,7 +1712,7 @@ place_swalls:
 	asl				; Multiply by 2 for X coord
 	sta	VERA_ADDR_LOW
 
-	+RAND 4, 27
+	+RAND $B0+4, $B0+27
 	sta	VERA_ADDR_HIGH
 
 	lda	#SWALL			; Set the SWALL character
@@ -1735,9 +1742,9 @@ handle_irq:
 ; USES:		A, X & Y
 ; *******************************************************************
 clear_field:
-	lda	#$10
+	lda	#$11
 	sta	VERA_ADDR_BANK		; Increment by 1
-	ldy	#3			; Start on line 3
+	ldy	#$B0+3			; Start on line 3
 
 @outloop:
 	sty	VERA_ADDR_HIGH
@@ -1752,7 +1759,7 @@ clear_field:
 	dex
 	bne	@inloop
 	iny
-	cpy	#29
+	cpy	#$B0+29
 	bne	@outloop
 	rts
 
@@ -1777,13 +1784,10 @@ draw_border:
 	ldy	#>Top_line2
 	jsr	print_str
 
-	lda	#$00
-	sta	VERA_ADDR_BANK	; Set increment to 0
-
-	lda	#$10
+	lda	#$11
 	sta	VERA_ADDR_BANK	; Set increment to 1
 
-	ldy	#2		; Line 2 = Y coordinate
+	ldy	#$B0+2		; Line 2 = Y coordinate
 	sty	VERA_ADDR_HIGH
 	ldy	#0		; Column 0 = X coordinate
 	sty	VERA_ADDR_LOW
@@ -1798,7 +1802,7 @@ draw_border:
 	dey
 	bne	@topline
 
-	ldy	#29		; Line = 29 = Y coordinate
+	ldy	#$B0+29		; Line = 29 = Y coordinate
 	sty	VERA_ADDR_HIGH
 	ldy	#0		; Column 0 = X coordinate
 	sty	VERA_ADDR_LOW
@@ -1812,7 +1816,7 @@ draw_border:
 	dey
 	bne	@bottomline
 
-	ldy	#2
+	ldy	#$B0+2
 	ldx	#0
 @leftline:
 	stx	VERA_ADDR_LOW
@@ -1822,10 +1826,10 @@ draw_border:
 	lda	#SWALL_COL
 	sta	VERA_DATA0
 	iny
-	cpy	#29
+	cpy	#$B0+29
 	bne	@leftline
 
-	ldy	#2
+	ldy	#$B0+2
 	ldx	#(39*2)
 @rightline:
 	stx	VERA_ADDR_LOW
@@ -1835,7 +1839,7 @@ draw_border:
 	lda	#SWALL_COL
 	sta	VERA_DATA0
 	iny
-	cpy	#29
+	cpy	#$B0+29
 	bne	@rightline
 
 	rts
@@ -1886,8 +1890,8 @@ randomize:
 ;		TMP0 & TMP1 is used because of print_str function
 ; *******************************************************************
 splash_screen:
-	lda	#2			; Ensure 80x60 mode
-	sec
+	lda	#0			; Ensure 80x60 mode
+	clc
 	jsr	SCRMOD
 
 	lda	#PLAY_COL		; Set black background
