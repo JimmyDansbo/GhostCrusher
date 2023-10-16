@@ -51,6 +51,8 @@ DIR_LEFT	= 2
 DIR_RIGHT	= 3
 DIR_UP		= 4
 
+	jmp	main
+
 ; *****************************************************************************
 ; Increment a 16bit value
 ; *****************************************************************************
@@ -217,7 +219,44 @@ DIR_UP		= 4
 	+WRITE_BCD_NUM POINTS+2	; Write low-byte of POINTS to screen
 }
 
-	jmp	main
+; *****************************************************************************
+; Compare value in .A with value in .dist. If .A is smaller, update .dist
+; and write .curx & .cury values to .newx and .newy variables.
+; *****************************************************************************
+; INPUTS:	.A & .dist = distance values to be compared
+;		.curx & .cury = X & Y values that may be copied
+;		.newx & .newy = variables to hold X & Y values
+; OUTPUTS:	.dist, .newx & .newy (updated if .A < .dist)
+; *****************************************************************************
+!macro UPD_DIST_XY .dist, .curx, .cury, .newx, .newy {
+	cmp	.dist		; If returned distance is shorter than the
+	bcs	.end		; previous saved, save this dist and coords.
+	sta	.dist
+	lda	.curx
+	sta	.newx
+	lda	.cury
+	sta	.newy
+.end:
+}
+
+; *****************************************************************************
+; Read and combine keyboard, joy1 & joy2 inputs
+; *****************************************************************************
+; USES:		.A, .X, .Y & TMPf
+; OUTPUS:	.A contains the combined .A from joystick_get for all 3 "joys"
+; *****************************************************************************
+!macro READ_JOY {
+	lda	#0
+	jsr	JOY_GET
+	sta	TMPf
+	lda	#1
+	jsr	JOY_GET
+	and	TMPf
+	sta	TMPf
+	lda	#2
+	jsr	JOY_GET
+	and	TMPf
+}
 
 ; *******************************************************************
 ; Initialize ZP variables with correct values for start
@@ -476,28 +515,6 @@ calc_dist:
 	clc			; Add saved calculation to current for
 	adc	TMP6		; complete distance
 	rts
-
-
-; *****************************************************************************
-; Compare value in .A with value in .dist. If .A is smaller, update .dist
-; and write .curx & .cury values to .newx and .newy variables.
-; *****************************************************************************
-; INPUTS:	.A & .dist = distance values to be compared
-;		.curx & .cury = X & Y values that may be copied
-;		.newx & .newy = variables to hold X & Y values
-; OUTPUTS:	.dist, .newx & .newy (updated if .A < .dist)
-; *****************************************************************************
-!macro UPD_DIST_XY .dist, .curx, .cury, .newx, .newy {
-	cmp	.dist		; If returned distance is shorter than the
-	bcs	.end		; previous saved, save this dist and coords.
-	sta	.dist
-	lda	.curx
-	sta	.newx
-	lda	.cury
-	sta	.newy
-.end:
-}
-
 
 ; *****************************************************************************
 ; Move ghosts in the direction of the player if there are any open spaces
@@ -780,16 +797,14 @@ wait_for_start:
 
 @emu_run:			; When run form cmdline, we just wait for the
 	jsr	randomize	; result to be something other than 0
-	lda	#0
-	jsr	JOY_GET
+	+READ_JOY
 	cmp	#$00
 	beq	@emu_run
 
 @norm_run:			; When we reach this point, we can expect the
 	jsr	randomize	; JOY_GET function to behave as documented and
-	lda	#0		; we can loop until user has pressed start
-	jsr	JOY_GET		; or return
-	and	#NES_STA
+	+READ_JOY		; we can loop until user has pressed start
+	and	#NES_STA	; or return
 	bne	@norm_run
 	rts
 
@@ -954,7 +969,8 @@ load_level:
 ; *******************************************************************
 do_getjoy:
 	lda	#0		; Select first joystick
-	jsr	JOY_GET
+;	jsr	JOY_GET
+	+READ_JOY
 	sta	TMP0		; Save current joystick state
 	cmp	#$FF		; If no key is pressed on joystick
 	bne	@joy_start
