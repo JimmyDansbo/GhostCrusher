@@ -867,7 +867,7 @@ write_lives:
 ; INPUTS:	LEVEL
 ; USES:		.A & TMP0
 ; *******************************************************************
-write_level:!byte $db
+write_level:
 	+VERA_GO_XY 22,$B0+0,1
 	ldy	LEVEL
 	lda	int_2_bcd,y
